@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <title> + </title>
+
+  <!-- CSS Framework -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&family=Orbitron:wght@400..900&family=Rajdhani:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+
+  <!-- React & DOM (Using cdnjs for better CORS reliability) -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin
+    src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- Three.js (cdnjs) -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --color-cyan: #06b6d4;
+      --color-cyan-glow: rgba(6, 182, 212, 0.6);
+      --color-bg-dark: #040812;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background-color: var(--color-bg-dark);
+      color: #e2e8f0;
+      overflow: hidden;
+      margin: 0;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .font-display {
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    .vignette {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, transparent 40%, rgba(4, 8, 18, 0.5) 100%);
+      pointer-events: none;
+      z-index: 52;
+    }
+
+    .preload-overlay {
+      position: fixed;
+      inset: 0;
+      background: #030511;
+      z-index: 9999;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.8s ease, visibility 0.8s ease;
+      pointer-events: all;
+    }
+
+    .preload-overlay.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .outro-overlay {
+      position: fixed;
+      inset: 0;
+      background: #030511;
+      z-index: 9998;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
+
+    .outro-overlay.fade-in {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .text-glow {
+      text-shadow: 0 0 5px var(--color-cyan-glow);
+    }
+
+    .cyber-grid {
+      background-size: 60px 60px;
+      background-image:
+        linear-gradient(to right, rgba(6, 182, 212, 0.1) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(6, 182, 212, 0.1) 1px, transparent 1px);
+      transform: perspective(500px) rotateX(60deg) translateY(-100px) translateZ(-200px);
+      animation: grid-move 20s linear infinite;
+      position: absolute;
+      width: 200%;
+      height: 200%;
+      left: -50%;
+      top: 0;
+      pointer-events: none;
+    }
+
+    @keyframes grid-move {
+      0% {
+        transform: perspective(500px) rotateX(60deg) translateY(0) translateZ(-200px);
+      }
+
+      100% {
+        transform: perspective(500px) rotateX(60deg) translateY(60px) translateZ(-200px);
+      }
+    }
+
+    @keyframes slideDown {
+      from {
+        transform: translateY(-10px);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    ::selection {
+      background: rgba(6, 182, 212, 0.3);
+      color: #fff;
+      text-shadow: 0 0 5px #06b6d4;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="preload-overlay" class="preload-overlay" style="background:#030511;position:fixed;inset:0;z-index:9999;">
+  </div>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const {useState, useEffect, useRef, useImperativeHandle, forwardRef} = React;
+    const THREE = window.THREE;
+
+    // --- INLINE ICONS (Replaces Lucide dependency to fix UMD errors) ---
+    const Radio = ({className}) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} >
+        <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" />
+        <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" />
+        <circle cx="12" cy="12" r="2" />
+        <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" />
+        <path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" />
+      </svg>
+    );
+
+    const AlertCircle = ({className}) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" x2="12" y1="8" y2="12" />
+        <line x1="12" x2="12.01" y1="16" y2="16" />
+      </svg>
+    );
+
+    // --- TEXTURE HELPERS ---
+    const createFadingBinaryTexture = ({vulnerable = false} = {}) => {
+      const size = 512; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
+      const fontSize = 32; const colWidth = fontSize * 0.8; ctx.font = `bold ${fontSize}px "JetBrains Mono", monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const cols = Math.floor(size / colWidth); const rows = Math.floor(size / fontSize);
+      const centerX = size / 2; const centerY = size / 2; const holeRadius = size * 0.25; const rimThickness = 70;
+      const randRange = (min, max) => min + Math.random() * (max - min);
+
+      const cells = [];
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          const x = (j + 0.5) * (size / cols); const y = (i + 0.5) * (size / rows);
+          const dx = x - centerX; const dy = y - centerY; const dist = Math.sqrt(dx * dx + dy * dy);
+          if (vulnerable && dist < holeRadius) continue;
+          const char = Math.random() > 0.5 ? '1' : '0';
+          let color = '#0e7490'; let shadowBlur = 0; let shadowColor = '#0e7490';
+          if (vulnerable && dist < holeRadius + rimThickness) {color = '#b91c1c'; shadowBlur = 8; shadowColor = '#7f1d1d';}
+          else {
+            const rand = Math.random();
+            if (rand > 0.98) {color = '#ef4444'; shadowBlur = 8; shadowColor = '#ef4444';}
+            else if (rand > 0.9) {color = '#ffffff'; shadowBlur = 10; shadowColor = '#ffffff';}
+            else if (rand > 0.6) {color = '#22d3ee'; shadowBlur = 5; shadowColor = '#22d3ee';}
+          }
+          cells.push({
+            x, y, char, color, shadowBlur, shadowColor,
+            alpha: 1, targetAlpha: 1,
+            nextSwitch: performance.now() + randRange(400, 2400),
+            fadeSpeed: randRange(0.04, 0.12),
+          });
+        }
+      }
+
+      const render = () => {
+        ctx.clearRect(0, 0, size, size);
+        ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0, 0, size, size);
+        for (const cell of cells) {
+          if (cell.alpha <= 0.01) continue;
+          ctx.globalAlpha = cell.alpha;
+          ctx.fillStyle = cell.color; ctx.shadowBlur = cell.shadowBlur; ctx.shadowColor = cell.shadowColor;
+          ctx.fillText(cell.char, cell.x, cell.y);
+        }
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = vulnerable ? 'rgba(185, 28, 28, 0.9)' : 'rgba(6, 182, 212, 0.3)'; ctx.lineWidth = 4;
+        if (vulnerable) {ctx.setLineDash([10, 5]); ctx.beginPath(); ctx.arc(centerX, centerY, holeRadius, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);}
+        else {ctx.strokeRect(0, 0, size, size);}
+      };
+
+      const texture = new THREE.CanvasTexture(canvas);
+      const update = () => {
+        const now = performance.now();
+        for (const cell of cells) {
+          if (now >= cell.nextSwitch) {
+            cell.targetAlpha = cell.targetAlpha === 1 ? 0 : 1;
+            cell.nextSwitch = now + randRange(500, 2600);
+          }
+          const diff = cell.targetAlpha - cell.alpha;
+          if (Math.abs(diff) > 0.001) cell.alpha += diff * cell.fadeSpeed;
+        }
+        render(); texture.needsUpdate = true;
+      };
+
+      render();
+      return {texture, update};
+    };
+
+    const createLaserTexture = () => {
+      const width = 512; const height = 64; const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0, 0, width, height);
+      ctx.font = 'bold 36px "JetBrains Mono", monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#a5f3fc'; ctx.shadowBlur = 6; ctx.shadowColor = '#06b6d4';
+      let binaryString = ""; for (let i = 0; i < 30; i++) binaryString += Math.random() > 0.5 ? "1 " : "0 ";
+      ctx.fillText(binaryString, 10, height / 2);
+      const texture = new THREE.CanvasTexture(canvas); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.ClampToEdgeWrapping; return texture;
+    };
+
+    const createBinarySideTexture = (color, shadowColor) => {
+      const width = 1024; const height = 64; const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0, 0, width, height);
+      const fontSize = 32; ctx.font = `bold ${fontSize}px "JetBrains Mono", monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < 1; i++) {
+        for (let j = 0; j < 50; j++) {
+          const char = Math.random() > 0.5 ? '1' : '0'; ctx.fillStyle = color; ctx.shadowBlur = 6; ctx.shadowColor = shadowColor;
+          const x = (j + 0.5) * (width / 50); const y = (i + 0.5) * (height / 1); ctx.fillText(char, x, y);
+        }
+      }
+      const texture = new THREE.CanvasTexture(canvas); texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping; texture.repeat.set(2, 1); return texture;
+    };
+
+    const createEthTexture = () => {
+      const size = 512; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, size, size); ctx.shadowBlur = 20; ctx.shadowColor = '#06b6d4';
+      ctx.beginPath(); ctx.arc(size / 2, size / 2, 230, 0, Math.PI * 2); ctx.lineWidth = 15; ctx.strokeStyle = '#22d3ee'; ctx.fillStyle = 'rgba(6, 182, 212, 0.15)'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(size / 2, size / 2, 195, 0, Math.PI * 2); ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(34, 211, 238, 0.5)'; ctx.stroke();
+      const cx = size / 2; const cy = size / 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy - 120); ctx.lineTo(cx + 80, cy - 20); ctx.lineTo(cx, cy + 20); ctx.lineTo(cx - 80, cy - 20); ctx.closePath(); ctx.fillStyle = '#ccfbf1'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx, cy - 120); ctx.lineTo(cx + 80, cy - 20); ctx.lineTo(cx, cy + 20); ctx.closePath(); ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx, cy + 40); ctx.lineTo(cx + 80, cy - 20); ctx.lineTo(cx, cy + 130); ctx.lineTo(cx - 80, cy - 20); ctx.closePath(); ctx.fillStyle = '#22d3ee'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx, cy + 40); ctx.lineTo(cx + 80, cy - 20); ctx.lineTo(cx, cy + 130); ctx.closePath(); ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fill();
+      const texture = new THREE.CanvasTexture(canvas); texture.center.set(0.5, 0.5); texture.rotation = -Math.PI / 2; return texture;
+    };
+
+    const createCircleTexture = () => {
+      const size = 64; const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size; const ctx = canvas.getContext('2d');
+      const r = size / 2; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(r, r, r, 0, Math.PI * 2); ctx.fill();
+      return new THREE.CanvasTexture(canvas);
+    };
+
+    const getSafePosition = (minRange, maxRange, existingPositions, minDist, minDistFromCenter = 0) => {
+      let attempts = 0; const maxAttempts = 50; let pos = new THREE.Vector3();
+      while (attempts < maxAttempts) {
+        attempts++;
+        pos.set((Math.random() - 0.5) * 2 * maxRange, (Math.random() - 0.5) * 2 * maxRange, (Math.random() - 0.5) * 2 * maxRange);
+        if (pos.length() < minDistFromCenter) continue;
+        let tooClose = false; for (const existing of existingPositions) {if (pos.distanceTo(existing) < minDist) {tooClose = true; break;} }
+        if (!tooClose) return pos;
+      }
+      return pos;
+    };
+
+    // --- THREE.JS BACKGROUND COMPONENT ---
+    const ThreeBackground = forwardRef((props, ref) => {
+      const mountRef = useRef(null);
+      const animationState = useRef({
+        normalCubesMesh: null, normalCubeData: [],
+        vulnCubesMesh: null, vulnCubeData: [],
+        updateBinaryTexture: null, updateVulnTexture: null,
+        particleMeshes: [], particleCircleTexture: null, fgCube: null, fgCoin: null, escapingCoins: [],
+        bgEthMesh: null, bgEthData: [], orbitRing: null,
+        camera: null, group: null, renderer: null, scene: null,
+        lasers: [], laserTexture: null, laserGeometry: null, laserMaterialTemplate: null,
+      });
+
+      useImperativeHandle(ref, () => ({}));
+
+      useEffect(() => {
+        if (!mountRef.current) return;
+        const scene = new THREE.Scene(); animationState.current.scene = scene; scene.fog = new THREE.FogExp2(0x040812, 0.012);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); camera.position.z = 25; camera.up.set(0, 1, 0); animationState.current.camera = camera;
+        const renderer = new THREE.WebGLRenderer({alpha: true, antialias: true}); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(window.devicePixelRatio); mountRef.current.appendChild(renderer.domElement); animationState.current.renderer = renderer;
+        const group = new THREE.Group(); scene.add(group); animationState.current.group = group;
+
+        const geometry = new THREE.IcosahedronGeometry(12, 1); const material = new THREE.MeshBasicMaterial({color: 0x06b6d4, wireframe: true, transparent: true, opacity: 0.1}); const sphere = new THREE.Mesh(geometry, material); group.add(sphere);
+        const coreGeo = new THREE.IcosahedronGeometry(5, 0); const coreMat = new THREE.MeshBasicMaterial({color: 0x06b6d4, wireframe: true, transparent: true, opacity: 0.25}); const core = new THREE.Mesh(coreGeo, coreMat); group.add(core);
+        const ring1Geo = new THREE.TorusGeometry(20, 0.1, 16, 100); const ring1Mat = new THREE.MeshBasicMaterial({color: 0x22d3ee, transparent: true, opacity: 0.15}); const ring1 = new THREE.Mesh(ring1Geo, ring1Mat); ring1.rotation.x = Math.PI / 2; group.add(ring1);
+        const ring2Geo = new THREE.TorusGeometry(17, 0.05, 16, 100); const ring2Mat = new THREE.MeshBasicMaterial({color: 0x0891b2, transparent: true, opacity: 0.3}); const ring2 = new THREE.Mesh(ring2Geo, ring2Mat); group.add(ring2);
+        const ring3Geo = new THREE.RingGeometry(26, 26.2, 64); const ring3Mat = new THREE.MeshBasicMaterial({color: 0x0e7490, side: THREE.DoubleSide, transparent: true, opacity: 0.1}); const ring3 = new THREE.Mesh(ring3Geo, ring3Mat); group.add(ring3);
+
+        // Two particle layers with spherical sprites
+        const particleCircleTexture = createCircleTexture(); animationState.current.particleCircleTexture = particleCircleTexture;
+        const particleMeshes = [];
+        const makeParticleLayer = (count, radiusFn, color, size, opacity) => {
+          const geo = new THREE.BufferGeometry(); const posArray = new Float32Array(count * 3);
+          for (let i = 0; i < count * 3; i += 3) {const r = radiusFn(); const theta = Math.random() * Math.PI * 2; const phi = Math.acos(2 * Math.random() - 1); posArray[i] = r * Math.sin(phi) * Math.cos(theta); posArray[i + 1] = r * Math.sin(phi) * Math.sin(theta); posArray[i + 2] = r * Math.cos(phi);}
+          geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+          const mat = new THREE.PointsMaterial({size, map: particleCircleTexture, color, transparent: true, opacity, depthWrite: false, alphaTest: 0.01});
+          const mesh = new THREE.Points(geo, mat); group.add(mesh); particleMeshes.push({mesh, geo, mat});
+        };
+        makeParticleLayer(4000, () => 15 + Math.random() * 10, 0x22d3ee, 0.09, 0.45);
+        makeParticleLayer(4000, () => 26 + Math.random() * 1, 0x22d3ee, 0.09, 0.45);
+        makeParticleLayer(4000, () => 40 + Math.random(), 0x0ea5e9, 0.11, 0.35);
+        animationState.current.particleMeshes = particleMeshes;
+
+        const {texture: binaryTexture, update: updateBinaryTexture} = createFadingBinaryTexture();
+        const {texture: vulnTexture, update: updateVulnTexture} = createFadingBinaryTexture({vulnerable: true});
+        const coinGeo = new THREE.CylinderGeometry(1.6, 1.6, 0.25, 64); const ethTexture = createEthTexture(); const ethSideTex = createBinarySideTexture('#22d3ee', '#06b6d4');
+        animationState.current.updateBinaryTexture = updateBinaryTexture; animationState.current.updateVulnTexture = updateVulnTexture;
+
+        const cubeGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+        const normalCubeMaterial = new THREE.MeshBasicMaterial({map: binaryTexture, transparent: true, opacity: 0.8, color: 0xffffff, depthWrite: false, side: THREE.DoubleSide});
+        const standardMat = new THREE.MeshBasicMaterial({map: binaryTexture, transparent: true, opacity: 0.8, side: THREE.DoubleSide, color: 0xffffff, depthWrite: false});
+        const vulnerableMat = new THREE.MeshBasicMaterial({map: vulnTexture, transparent: true, opacity: 0.8, side: THREE.DoubleSide, color: 0xffffff, depthWrite: false, opacity: 1.0});
+        const vulnMatArray = [standardMat, standardMat, standardMat, standardMat, vulnerableMat, standardMat];
+
+        const totalCubes = 200;
+        const normalCubesMesh = new THREE.InstancedMesh(cubeGeometry, normalCubeMaterial, totalCubes);
+        const vulnCubesMesh = new THREE.InstancedMesh(cubeGeometry, vulnMatArray, totalCubes);
+        normalCubesMesh.frustumCulled = false; vulnCubesMesh.frustumCulled = false;
+
+        const normalCubeData = []; const vulnCubeData = []; const allOccupiedPositions = [];
+        const dummy = new THREE.Object3D();
+
+        const checkCollisionXY = (x, y, s) => {const myRadius = s * 0.4; for (const item of allOccupiedPositions) {const dx = x - item.pos.x; const dy = y - item.pos.y; const distSq = dx * dx + dy * dy; const otherRadius = item.scale * 0.4; const minDist = (myRadius + otherRadius) * 2.5; if (distSq < minDist * minDist) return true;} return false;};
+
+        for (let i = 0; i < totalCubes; i++) {
+          let pos = new THREE.Vector3(); let scale = 1.0; let validPosition = false; let attempts = 0;
+          while (!validPosition && attempts < 100) {
+            attempts++; const r = 15 + Math.random() * 35; const theta = Math.random() * Math.PI * 2; const phi = Math.acos(2 * Math.random() - 1);
+            const x = r * Math.sin(phi) * Math.cos(theta); const y = r * Math.sin(phi) * Math.sin(theta); const z = (Math.random() * 70) - 50;
+            scale = 0.5 + Math.random() * 1.5;
+            if (!checkCollisionXY(x, y, scale)) {pos.set(x, y, z); validPosition = true;}
+          }
+          if (!validPosition) {const r = 40 + Math.random() * 10; const theta = Math.random() * Math.PI * 2; pos.set(r * Math.cos(theta), r * Math.sin(theta), (Math.random() * 70) - 50);}
+          const rot = new THREE.Vector3(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+          const cData = {pos: pos, speed: 0.02 + Math.random() * 0.05, rot: rot, rotSpeed: new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02), scale: scale};
+          allOccupiedPositions.push({pos, scale});
+          if (Math.random() < 0.25) vulnCubeData.push(cData); else normalCubeData.push(cData);
+        }
+
+        normalCubesMesh.count = normalCubeData.length; vulnCubesMesh.count = vulnCubeData.length;
+        normalCubeData.forEach((d, i) => {dummy.position.copy(d.pos); dummy.rotation.setFromVector3(d.rot); dummy.scale.set(d.scale, d.scale, d.scale); dummy.updateMatrix(); normalCubesMesh.setMatrixAt(i, dummy.matrix);});
+        vulnCubeData.forEach((d, i) => {dummy.position.copy(d.pos); dummy.rotation.setFromVector3(d.rot); dummy.scale.set(d.scale, d.scale, d.scale); dummy.updateMatrix(); vulnCubesMesh.setMatrixAt(i, dummy.matrix);});
+        group.add(normalCubesMesh); group.add(vulnCubesMesh); animationState.current.normalCubesMesh = normalCubesMesh; animationState.current.normalCubeData = normalCubeData; animationState.current.vulnCubesMesh = vulnCubesMesh; animationState.current.vulnCubeData = vulnCubeData;
+
+        const createCoinMat = (tex, sideTex, opacity) => [new THREE.MeshBasicMaterial({map: sideTex, transparent: true, opacity: opacity * 0.9, color: 0xffffff, side: THREE.DoubleSide}), new THREE.MeshBasicMaterial({map: tex, transparent: true, opacity: opacity, color: 0xffffff}), new THREE.MeshBasicMaterial({map: tex, transparent: true, opacity: opacity, color: 0xffffff})];
+        const fgMatEth = createCoinMat(ethTexture, ethSideTex, 0.95); const bgMatEth = createCoinMat(ethTexture, ethSideTex, 0.45);
+
+        const maxBgCoins = 600; const bgEthMesh = new THREE.InstancedMesh(coinGeo, bgMatEth, maxBgCoins); bgEthMesh.frustumCulled = false; group.add(bgEthMesh);
+        const bgEthData = [];
+        const addCoinsToCube = (dataArray, type) => {
+          for (let i = 0; i < dataArray.length; i++) {
+            if (Math.random() > 0.5) {
+              bgEthData.push({parentIdx: i, parentType: type, relPos: new THREE.Vector3(0, 0, 0), baseScale: 0.15, phase: Math.random() * Math.PI * 2, rotSpeed: new THREE.Vector3(Math.random() * 0.02, Math.random() * 0.05, 0)});
+              const numSmall = 2 + Math.floor(Math.random() * 3); const smallCoinPositions = [];
+              for (let j = 0; j < numSmall; j++) {
+                const rPos = getSafePosition(0.20, 0.20, smallCoinPositions, 0.1, 0.15); smallCoinPositions.push(rPos);
+                bgEthData.push({parentIdx: i, parentType: type, relPos: rPos, baseScale: 0.0375, phase: Math.random() * Math.PI * 2, rotSpeed: new THREE.Vector3(Math.random() * 0.05, Math.random() * 0.05, Math.random() * 0.05)});
+              }
+            }
+          }
+        };
+        addCoinsToCube(normalCubeData, 'normal'); addCoinsToCube(vulnCubeData, 'vuln');
+        bgEthMesh.count = bgEthData.length; animationState.current.bgEthMesh = bgEthMesh; animationState.current.bgEthData = bgEthData;
+
+        const fgBoxGeo = new THREE.BoxGeometry(5.0, 5.0, 5.0); const fgCube = new THREE.Mesh(fgBoxGeo, vulnMatArray);
+        const fgWireGeo = new THREE.BoxGeometry(5.1, 5.1, 5.1); const fgWireMat = new THREE.MeshBasicMaterial({color: 0x22d3ee, wireframe: true, transparent: true, opacity: 0.3}); const fgWire = new THREE.Mesh(fgWireGeo, fgWireMat); fgCube.add(fgWire);
+        const escapingCoinsData = []; const numEscaping = 12;
+        for (let i = 0; i < numEscaping; i++) {
+          const mesh = new THREE.Mesh(coinGeo, fgMatEth); const scale = 0.12 + Math.random() * 0.08;
+          mesh.scale.set(scale, scale * 2.4, scale); // keep small radius but increase thickness for stronger 3D look
+          fgCube.add(mesh);
+          escapingCoinsData.push({mesh, angle: Math.random() * Math.PI * 2, speed: 0.03 + Math.random() * 0.05, radius: 0.4 + Math.random() * 0.8, zFreq: 1.5 + Math.random() * 2.5, zPhase: Math.random() * Math.PI * 2, rotSpeed: new THREE.Vector3(Math.random() * 0.2, Math.random() * 0.2, Math.random() * 0.2)});
+        }
+        animationState.current.escapingCoins = escapingCoinsData; scene.add(fgCube); animationState.current.fgCube = fgCube;
+
+        const fgCoinGroup = new THREE.Group();
+        const mainCoin = new THREE.Mesh(coinGeo, fgMatEth); mainCoin.rotation.x = Math.PI / 2; fgCoinGroup.add(mainCoin);
+        const fgSmallPositions = []; const coin1 = new THREE.Mesh(coinGeo, fgMatEth); coin1.scale.setScalar(0.25); const pos1 = getSafePosition(1.8, 1.8, fgSmallPositions, 1.0, 2.0); fgSmallPositions.push(pos1); coin1.position.copy(pos1); coin1.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0); fgCoinGroup.add(coin1);
+        scene.add(fgCoinGroup); animationState.current.fgCoin = fgCoinGroup;
+
+        const orbitGeo = new THREE.BufferGeometry(); const orbitPoints = 120; const orbitPos = new Float32Array(orbitPoints * 3); const orbitRadius = 19;
+        for (let i = 0; i < orbitPoints; i++) {const angle = (i / orbitPoints) * Math.PI * 2; orbitPos[i * 3] = Math.cos(angle) * orbitRadius; orbitPos[i * 3 + 1] = Math.sin(angle) * orbitRadius; orbitPos[i * 3 + 2] = 0;}
+        orbitGeo.setAttribute('position', new THREE.BufferAttribute(orbitPos, 3)); const orbitMat = new THREE.PointsMaterial({size: 0.15, color: 0xffffff, transparent: true, opacity: 0.6}); const orbitRing = new THREE.Points(orbitGeo, orbitMat); orbitRing.rotation.x = Math.PI / 3; group.add(orbitRing); animationState.current.orbitRing = orbitRing;
+
+        const laserTexture = createLaserTexture(); animationState.current.laserTexture = laserTexture; animationState.current.laserGeometry = new THREE.CylinderGeometry(0.04, 0.04, 1, 8, 1, true);
+        animationState.current.laserMaterialTemplate = new THREE.MeshBasicMaterial({map: laserTexture, transparent: true, opacity: 0.8, color: 0xffffff, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending});
+
+        let time = 0; let animationFrameId;
+        const animate = () => {
+          animationFrameId = requestAnimationFrame(animate); time += 0.002;
+          sphere.rotation.x += 0.001; sphere.rotation.y += 0.002; core.rotation.x -= 0.002; core.rotation.y -= 0.004;
+          ring1.rotation.x = Math.PI / 2 + Math.sin(time) * 0.2; ring1.rotation.y += 0.002; ring2.rotation.x += 0.003; ring2.rotation.y = Math.sin(time * 0.5) * 0.2; ring3.rotation.z -= 0.001; ring3.rotation.x = Math.sin(time * 0.2) * 0.1;
+          animationState.current.particleMeshes?.forEach(({mesh}) => {mesh.rotation.y += 0.0005;});
+
+          const updateCubes = (mesh, data) => {
+            if (!mesh) return;
+            for (let i = 0; i < data.length; i++) {
+              const d = data[i]; d.pos.z += d.speed; if (d.pos.z > 30) d.pos.z = -50 - Math.random() * 20;
+              d.rot.x += d.rotSpeed.x; d.rot.y += d.rotSpeed.y; d.rot.z += d.rotSpeed.z;
+              let depthScale = 1.0; if (d.pos.z < -40) depthScale = THREE.MathUtils.smoothstep(d.pos.z, -80, -40);
+              let proximityScale = 1.0; if (d.pos.z > 5) {const distFactor = Math.max(0, (d.pos.z - 5) / 20); proximityScale = 1.0 + (distFactor * 4.0);}
+              const finalScale = d.scale * depthScale * proximityScale;
+              dummy.position.copy(d.pos); dummy.rotation.setFromVector3(d.rot); dummy.scale.set(finalScale, finalScale, finalScale); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
+            }
+            mesh.instanceMatrix.needsUpdate = true;
+          };
+          if (animationState.current.updateBinaryTexture) animationState.current.updateBinaryTexture();
+          if (animationState.current.updateVulnTexture) animationState.current.updateVulnTexture();
+          updateCubes(animationState.current.normalCubesMesh, animationState.current.normalCubeData); updateCubes(animationState.current.vulnCubesMesh, animationState.current.vulnCubeData);
+
+          if (animationState.current.bgEthMesh && animationState.current.bgEthData.length > 0) {
+            const mesh = animationState.current.bgEthMesh; const dataArr = animationState.current.bgEthData; const normalData = animationState.current.normalCubeData; const vulnData = animationState.current.vulnCubeData;
+            for (let k = 0; k < dataArr.length; k++) {
+              const data = dataArr[k]; const parentCube = data.parentType === 'normal' ? normalData[data.parentIdx] : vulnData[data.parentIdx];
+              const parentPos = parentCube.pos; let depthScale = 1.0; if (parentPos.z < -40) depthScale = THREE.MathUtils.smoothstep(parentPos.z, -80, -40);
+              let proximityScale = 1.0; if (parentPos.z > 5) {const distFactor = Math.max(0, (parentPos.z - 5) / 20); proximityScale = 1.0 + (distFactor * 4.0);}
+              const currentCubeScale = parentCube.scale * depthScale * proximityScale;
+              const vRel = data.relPos.clone().applyEuler(new THREE.Euler(parentCube.rot.x, parentCube.rot.y, parentCube.rot.z)); vRel.multiplyScalar(currentCubeScale);
+              const coinPos = parentPos.clone().add(vRel); const coinRot = new THREE.Euler(parentCube.rot.x + time * 2 + data.phase, parentCube.rot.y + time + data.phase, parentCube.rot.z); const coinScale = currentCubeScale * data.baseScale;
+              dummy.position.copy(coinPos); dummy.rotation.copy(coinRot); dummy.scale.set(coinScale, coinScale, coinScale); dummy.updateMatrix(); mesh.setMatrixAt(k, dummy.matrix);
+            }
+            mesh.instanceMatrix.needsUpdate = true;
+          }
+
+          orbitRing.rotation.z -= 0.005;
+          // REVERTED: Continuous spin for main cube
+          if (animationState.current.fgCube) {animationState.current.fgCube.rotation.x += 0.005; animationState.current.fgCube.rotation.y += 0.01;}
+          if (animationState.current.fgCoin && animationState.current.fgCube) {
+            const grp = animationState.current.fgCoin; grp.position.copy(animationState.current.fgCube.position); grp.rotation.copy(animationState.current.fgCube.rotation);
+            grp.children.forEach((child, idx) => {if (idx === 0) child.rotation.z += 0.01; if (idx > 0) {child.rotation.x += 0.02; child.rotation.y += 0.03; child.position.y += Math.sin(time * 3 + idx) * 0.005;} });
+          }
+          animationState.current.escapingCoins.forEach(c => {
+            c.angle += c.speed; const z = 2.5 + Math.sin(time * c.zFreq + c.zPhase) * 2.0; const breathing = 1.0 + (z > 3.0 ? 0.3 * Math.sin(time * 4) : 0); const currentRadius = c.radius * breathing;
+            c.mesh.position.x = Math.cos(c.angle) * currentRadius; c.mesh.position.y = Math.sin(c.angle) * currentRadius; c.mesh.position.z = z; c.mesh.rotation.x += c.rotSpeed.x; c.mesh.rotation.y += c.rotSpeed.y; c.mesh.rotation.z += c.rotSpeed.z;
+          });
+
+          const {lasers, laserGeometry, laserMaterialTemplate, group} = animationState.current; const normalData = animationState.current.normalCubeData; const vulnData = animationState.current.vulnCubeData;
+          // INCREASED LASERS: 35% chance, max 40
+          if (lasers.length < 40 && Math.random() < 0.35) {
+            const sources = []; normalData.forEach((c, idx) => {if (c.scale > 1.2 && c.pos.z > -20 && c.pos.z < 20) sources.push({idx, type: 'normal'});}); vulnData.forEach((c, idx) => {if (c.scale > 1.2 && c.pos.z > -20 && c.pos.z < 20) sources.push({idx, type: 'vuln'});});
+            if (sources.length > 0) {
+              const source = sources[Math.floor(Math.random() * sources.length)]; const targetIsNormal = Math.random() > 0.25; const targetList = targetIsNormal ? normalData : vulnData; let targetIdx = Math.floor(Math.random() * targetList.length);
+              const laserMat = laserMaterialTemplate.clone(); const laserMesh = new THREE.Mesh(laserGeometry, laserMat); group.add(laserMesh);
+              lasers.push({mesh: laserMesh, sourceIndex: source.idx, sourceType: source.type, targetIndex: targetIdx, targetType: targetIsNormal ? 'normal' : 'vuln', startTime: performance.now(), duration: 2500 + Math.random() * 2000});
+            }
+          }
+
+          const now = performance.now();
+          for (let i = lasers.length - 1; i >= 0; i--) {
+            const laser = lasers[i]; const elapsed = now - laser.startTime; const progress = elapsed / laser.duration;
+            if (progress >= 1) {group.remove(laser.mesh); laser.mesh.geometry.dispose(); laser.mesh.material.dispose(); lasers.splice(i, 1); continue;}
+            const sData = laser.sourceType === 'normal' ? normalData : vulnData; const tData = laser.targetType === 'normal' ? normalData : vulnData;
+            const sourcePos = sData[laser.sourceIndex]?.pos || new THREE.Vector3(); const targetPos = tData[laser.targetIndex]?.pos || new THREE.Vector3();
+            const mid = new THREE.Vector3().addVectors(sourcePos, targetPos).multiplyScalar(0.5); laser.mesh.position.copy(mid);
+            const direction = new THREE.Vector3().subVectors(targetPos, sourcePos); const distance = direction.length();
+            let currentLen = distance; if (progress < 0.2) {currentLen = distance * (progress / 0.2); const growMid = new THREE.Vector3().lerpVectors(sourcePos, targetPos, (progress / 0.2) * 0.5); laser.mesh.position.copy(growMid);} else if (progress > 0.8) {laser.mesh.material.opacity = 0.8 * (1 - (progress - 0.8) / 0.2);}
+            laser.mesh.scale.set(1, currentLen, 1); const axis = new THREE.Vector3(0, 1, 0); laser.mesh.quaternion.setFromUnitVectors(axis, direction.normalize());
+            if (laser.mesh.material.map) laser.mesh.material.map.offset.x -= 0.02;
+          }
+          renderer.render(scene, camera);
+        };
+        animate();
+
+        const handleResize = () => {
+          if (!mountRef.current || !camera || !renderer) return;
+          const width = window.innerWidth; const height = window.innerHeight; camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width, height);
+          const dist = camera.position.z; const vFOV = THREE.MathUtils.degToRad(camera.fov); const visibleHeight = 2 * Math.tan(vFOV / 2) * dist; const visibleWidth = visibleHeight * camera.aspect;
+          group.position.x = -visibleWidth * 0.35; group.position.y = -visibleHeight * 0.35;
+          if (animationState.current.fgCube) {
+            const cubeZ = 15; const distToCube = camera.position.z - cubeZ;
+            if (distToCube > 0) {const heightAtDepth = 2 * Math.tan(vFOV / 2) * distToCube; const widthAtDepth = heightAtDepth * camera.aspect; animationState.current.fgCube.position.set(widthAtDepth * 0.35, heightAtDepth * 0.30, cubeZ); if (animationState.current.fgCoin) animationState.current.fgCoin.position.copy(animationState.current.fgCube.position);}
+          }
+        };
+        handleResize(); window.addEventListener('resize', handleResize);
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          cancelAnimationFrame(animationFrameId);
+          if (mountRef.current && renderer.domElement) mountRef.current.removeChild(renderer.domElement);
+          geometry.dispose(); material.dispose(); coreGeo.dispose(); coreMat.dispose(); ring1Geo.dispose(); ring1Mat.dispose(); ring2Geo.dispose(); ring2Mat.dispose(); ring3Geo.dispose(); ring3Mat.dispose(); orbitGeo.dispose(); orbitMat.dispose(); cubeGeometry.dispose(); normalCubeMaterial.dispose(); vulnMatArray.forEach(m => m.dispose()); binaryTexture.dispose(); vulnTexture.dispose(); fgBoxGeo.dispose(); fgWireGeo.dispose(); fgWireMat.dispose();
+          animationState.current.particleMeshes.forEach(({geo, mat}) => {geo.dispose(); mat.dispose();});
+          if (animationState.current.particleCircleTexture) animationState.current.particleCircleTexture.dispose();
+          ethTexture.dispose(); ethSideTex.dispose(); coinGeo.dispose(); fgMatEth.forEach(m => m.dispose()); bgMatEth.forEach(m => m.dispose());
+          // Clean up laser resources (geometry + template + any active meshes)
+          if (animationState.current.laserGeometry) animationState.current.laserGeometry.dispose();
+          if (animationState.current.laserMaterialTemplate) animationState.current.laserMaterialTemplate.dispose();
+          animationState.current.lasers.forEach(l => {
+            if (l.mesh) {
+              if (group && group.children.includes(l.mesh)) group.remove(l.mesh);
+              if (l.mesh.geometry) l.mesh.geometry.dispose();
+              if (l.mesh.material) l.mesh.material.dispose();
+            }
+          });
+          laserTexture.dispose();
+          renderer.dispose();
+        };
+      }, []);
+      return <div ref={mountRef} className="fixed inset-0 z-0 pointer-events-none opacity-80" />;
+    });
+
+    // --- APP COMPONENT ---
+    const App = () => {
+      const [addressInput, setAddressInput] = useState('');
+      const [isValid, setIsValid] = useState(true);
+      const [validationMessage, setValidationMessage] = useState('INVALID CONTRACT ADDRESS FORMAT');
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [isFadingOut, setIsFadingOut] = useState(false);
+      const [isOutro, setIsOutro] = useState(false);
+      const [cursorIdx, setCursorIdx] = useState(0);
+      const inputRef = useRef(null);
+      const fadeRef = useRef(null);
+      const outroRef = useRef(null);
+
+      useEffect(() => {
+        const overlay = document.getElementById('preload-overlay');
+        if (!overlay) return;
+        const timer = setTimeout(() => {
+          overlay.classList.add('fade-out');
+          const removeOverlay = () => overlay.remove();
+          overlay.addEventListener('transitionend', removeOverlay, {once: true});
+        }, 1000);
+        return () => clearTimeout(timer);
+      }, []);
+
+      const parseInput = (raw) => {
+        const trimmed = (raw || '').trim();
+        if (!trimmed) return null;
+        const parts = trimmed.split(':');
+        if (parts.length > 2) return null;
+
+        let chain = 'mainnet';
+        let address = trimmed;
+        if (parts.length === 2) {
+          chain = (parts[0] || 'mainnet').trim() || 'mainnet';
+          address = (parts[1] || '').trim();
+          if (!/^[a-zA-Z0-9_-]+$/.test(chain)) return null;
+        }
+
+        const isHexAddress = /^0x[a-fA-F0-9]{40}$/.test(address);
+        if (!isHexAddress) return null;
+        return {address, chain: chain.toLowerCase()};
+      };
+
+      const startFadeAndRedirect = (url) => {
+        const target = url.startsWith('/') ? url : `/${url}`;
+        setIsFadingOut(true);
+        setIsOutro(true);
+
+        const node = outroRef.current;
+        let fallback;
+        const go = () => {
+          if (fallback) clearTimeout(fallback);
+          window.location.href = target;
+        };
+
+        if (node) {
+          node.addEventListener('transitionend', go, {once: true});
+          // Fallback in case transitionend doesn't fire
+          fallback = setTimeout(go, 800);
+        } else {
+          go();
+        }
+      };
+
+      const handleSearch = async (e) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+
+        const parsed = parseInput(addressInput);
+        if (!parsed) {
+          setIsValid(false);
+          setValidationMessage('INVALID CONTRACT ADDRESS FORMAT');
+          return;
+        }
+
+        setIsSubmitting(true);
+        setIsValid(true);
+        try {
+          const res = await fetch('/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({address: parsed.address, chain: parsed.chain}),
+          });
+
+          if (!res.ok) {
+            setIsValid(false);
+            setValidationMessage('SERVER REJECTED REQUEST');
+            return;
+          }
+
+          const data = await res.json();
+          const targetUrl = data.url || (data.file ? `/${data.file}` : null);
+          if (!targetUrl) {
+            setIsValid(false);
+            setValidationMessage('UNEXPECTED SERVER RESPONSE');
+            return;
+          }
+          startFadeAndRedirect(targetUrl);
+        } catch (err) {
+          console.error(err);
+          setIsValid(false);
+          setValidationMessage('FAILED TO REACH SERVER');
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+
+      const updateCursor = (e) => {
+        setCursorIdx(e.currentTarget.selectionStart || 0);
+      };
+
+      return (
+        <>
+          <div ref={outroRef} className={`outro-overlay ${isOutro ? 'fade-in' : ''}`}></div>
+          <div
+            className="h-screen w-screen flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-100 overflow-hidden relative"
+            onClick={() => inputRef.current?.focus()}
+          >
+            <div className="fixed inset-0 z-0 bg-[#040812]">
+              <ThreeBackground />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#040812] via-transparent to-[#040812a1]"></div>
+              <div className="absolute inset-0 bg-gradient-to-r from-[#040812] via-transparent to-[#040812]"></div>
+            </div>
+
+            <div className="vignette"></div>
+            <div className="cyber-grid opacity-30"></div>
+
+            <div
+              ref={fadeRef}
+              className={`relative z-10 w-full h-full flex flex-col items-center justify-center p-6 transition-opacity duration-500 ${isFadingOut ? 'opacity-0' : 'opacity-100'}`}
+            >
+              <div className="flex-1"></div>
+
+              <div className="w-full flex flex-col items-center justify-center gap-8">
+                <form onSubmit={handleSearch} className="w-full relative group h-16 flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+                    <span className={`font-display font-bold uppercase tracking-[0.25em] text-2xl text-glow whitespace-pre transition-colors duration-200 ${isValid ? 'text-cyan-100' : 'text-red-400'}`}>
+                      {addressInput.slice(0, cursorIdx)}
+                    </span>
+
+                    {/* FIXED: Caret invisible when length is 0 */}
+                    {addressInput.length > 0 && (
+                      <div className={`w-1 h-3 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse mx-[2px] inline-block ${isValid ? 'bg-cyan-500' : 'bg-red-500'}`}></div>
+                    )}
+
+                    <span className={`font-display font-bold uppercase tracking-[0.25em] text-2xl text-glow whitespace-pre transition-colors duration-200 ${isValid ? 'text-cyan-100' : 'text-red-400'}`}>
+                      {addressInput.slice(cursorIdx)}
+                    </span>
+                  </div>
+
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={addressInput}
+                    onChange={(e) => {
+                      setAddressInput(e.target.value);
+                      updateCursor(e);
+                      setIsValid(true);
+                      setValidationMessage('INVALID CONTRACT ADDRESS FORMAT');
+                    }}
+                    onKeyUp={updateCursor}
+                    onClick={updateCursor}
+                    onSelect={updateCursor}
+                    className="w-full h-full bg-transparent border-none text-transparent caret-transparent text-center font-display font-bold uppercase tracking-[0.25em] text-2xl focus:outline-none focus:ring-0 z-10 selection:bg-cyan-500/30 selection:text-transparent"
+                    autoFocus
+                    spellCheck={false}
+                    autoComplete="off"
+                    disabled={isSubmitting}
+                  />
+                </form>
+
+                {!isValid && (
+                  <div className="absolute -bottom-10 animate-[slideDown_0.2s_ease-out] flex items-center gap-2 text-red-400 font-mono text-xs">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>{validationMessage}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1"></div>
+
+              <div className="w-full flex justify-center pb-6 mt-8">
+                <div className="flex items-center gap-2 text-[10px] font-mono text-cyan-900/60 uppercase tracking-widest">
+                  <Radio className="w-3 h-3 animate-pulse" />
+                  System v0.19 // Awaiting Input
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+
+</html>

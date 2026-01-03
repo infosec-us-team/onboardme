@@ -1,0 +1,1423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ezbugs</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&family=Orbitron:wght@400..900&family=Rajdhani:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --color-cyan: #06b6d4;
+      --color-cyan-glow: rgba(6, 182, 212, 0.6);
+      --color-bg-dark: #040812;
+      --code-font-size: 10px;
+      --code-line-height: 14px;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background-color: var(--color-bg-dark);
+      color: #e2e8f0;
+      overflow: hidden;
+    }
+
+    .code-block {
+      font-size: var(--code-font-size);
+      line-height: var(--code-line-height);
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .font-display {
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    /* --- GLOBAL FX --- */
+
+    .scanlines {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(to bottom,
+          rgba(255, 255, 255, 0),
+          rgba(255, 255, 255, 0) 50%,
+          rgba(0, 0, 0, 0.3) 50%,
+          rgba(0, 0, 0, 0.3));
+      background-size: 100% 4px;
+      pointer-events: none;
+      z-index: 50;
+      opacity: 0.6;
+    }
+
+    .vignette {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.12) 100%);
+      pointer-events: none;
+      z-index: 52;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(4, 8, 18, 0.8);
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #0e7490;
+      border: 1px solid #06b6d4;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #06b6d4;
+    }
+
+    .text-glow {
+      text-shadow: 0 0 5px var(--color-cyan-glow);
+    }
+
+    @keyframes pulse-glow {
+
+      0%,
+      100% {
+        text-shadow: 0 0 5px var(--color-cyan-glow);
+        opacity: 1;
+      }
+
+      50% {
+        text-shadow: 0 0 15px var(--color-cyan), 0 0 20px var(--color-cyan);
+        opacity: 0.8;
+      }
+    }
+
+    .animate-pulse-glow {
+      animation: pulse-glow 2s infinite;
+    }
+
+    @keyframes slideRight {
+      from {
+        transform: translateX(-50px);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideLeft {
+      from {
+        transform: translateX(50px);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        filter: blur(10px);
+      }
+
+      to {
+        opacity: 1;
+        filter: blur(0);
+      }
+    }
+
+    .animate-slideRight {
+      animation: slideRight 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+    }
+
+    .animate-slideLeft {
+      animation: slideLeft 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+    }
+
+    .animate-fadeIn {
+      animation: fadeIn 0.8s ease-out both;
+    }
+
+    ::selection {
+      background: rgba(6, 182, 212, 0.3);
+      color: #fff;
+      text-shadow: 0 0 5px #06b6d4;
+    }
+
+    .outro-overlay {
+      position: fixed;
+      inset: 0;
+      background: #030511;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
+
+    .outro-overlay.fade-in {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* Syntax Highlighting */
+    .token-comment {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .token-string {
+      color: #6ee7b7;
+    }
+
+    .token-keyword {
+      color: #c084fc;
+      font-weight: bold;
+    }
+
+    .token-type {
+      color: #fbbf24;
+    }
+
+    .token-modifier {
+      color: #22d3ee;
+    }
+
+    .token-number {
+      color: #38bdf8;
+    }
+
+    .token-operator {
+      color: #94a3b8;
+    }
+
+    .token-function {
+      color: #06b6d4;
+      font-weight: 600;
+    }
+
+    .token-constant {
+      color: #fb923c;
+    }
+
+    .token-regex {
+      color: #f472b6;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1"
+  }
+}
+</script>
+</head>
+
+<body>
+  <div id="outro-overlay" class="outro-overlay"></div>
+  <!-- App Root -->
+  <div id="root" class="h-screen w-screen flex flex-col relative z-10 font-sans">
+    <main class="flex-1 flex gap-4 overflow-hidden p-6" id="app-container">
+      <!-- Content Injected via JS -->
+    </main>
+  </div>
+
+  <!-- SVG Filters -->
+  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1"
+    xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+        <feMerge>
+          <feMergeNode in="coloredBlur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+    </defs>
+  </svg>
+
+  <script>
+    // --- DATA LOADING ---
+    const ENTRY_POINTS_DATA = [
+      REPLACE_THIS_WITH_ENTRY_POINTS_DATA
+    ];
+    let functionList = [];
+    let callGraphs = {};
+    let stateReadsByFunction = {};
+    let stateWritesByFunction = {};
+
+    let deviceGuardEl = null;
+    let searchPaletteEl = null;
+    let hotkeyHelpEl = null;
+    let outroOverlay = null;
+
+    const normalizeId = (text, suffix = '') => {
+      const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+      return suffix ? `${base}_${suffix}` : base;
+    };
+
+    const buildDataFromJson = (entries = []) => {
+      const functions = entries.map((entry, idx) => {
+        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
+        const fullName = entry.entry_point || `entry_point_${idx}`;
+        const display = fullName.split('(')[0];
+        return {
+          id,
+          name: display.split('.').pop() || display,
+          signature: fullName,
+          type: /view|pure/i.test(fullName) ? 'read' : 'write',
+          contract: entry.contract || 'Unknown'
+        };
+      });
+
+      const graphs = {};
+      const stateReads = {};
+      const stateWrites = {};
+      entries.forEach((entry, idx) => {
+        const flow = entry.flow || [];
+        const entryReadsMsgSender = Boolean(entry.reads_msg_sender);
+        const entryStateWrites = (entry.state_variables_written || []).map((s) => s.name);
+        const functionId = functions[idx]?.id;
+        stateReads[functionId] = Array.isArray(entry.state_variables_read) ? entry.state_variables_read : [];
+        stateWrites[functionId] = Array.isArray(entry.state_variables_written) ? entry.state_variables_written : [];
+        graphs[functionId] = flow.map((step, stepIndex) => {
+          const restrictions = (() => {
+            if (stepIndex === 0 && entry.require_assert_statements && entry.require_assert_statements.length) {
+              return entry.require_assert_statements;
+            }
+            if (step.restrictions && step.restrictions.length) return step.restrictions;
+            return [];
+          })();
+          return {
+            id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex}`),
+            depth: stepIndex,
+            name: step.selector,
+            contractName: entry.contract || 'Unknown',
+            functionName: (step.name || `step_${stepIndex}`).split('.').slice(1).join('.'),
+            signature: step.name || '',
+            type: stepIndex === 0 ? 'entry-point' : 'internal',
+            selector: step.selector || '',
+            complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
+            hasMsgSenderCheck: stepIndex === 0 ? entryReadsMsgSender : false,
+            modifiedStateVariables: stepIndex === 0 ? entryStateWrites : [],
+            restrictions,
+            calls: flow.slice(stepIndex + 1).map((callStep, callIdx) => ({
+              id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex + 1 + callIdx}`),
+              name: callStep.name || `step_${stepIndex + 1 + callIdx}`,
+              type: callStep.kind && callStep.kind.toLowerCase().includes('modifier') ? 'modifier' : 'internal',
+              selector: callStep.selector || '',
+              complexity: Number.isFinite(callStep.cyclomatic_complexity) ? callStep.cyclomatic_complexity : 1
+            })),
+            code: step.source || '// source unavailable'
+          };
+        });
+      });
+
+      return {functions, callGraphs: graphs, stateReads, stateWrites};
+    };
+
+    // --- STATE & UTILS ---
+    const CODE_FONT_STORAGE_KEY = 'codeFontSize';
+    const CODE_FONT_DEFAULT = 10;
+    const CODE_FONT_MIN = 8;
+    const CODE_FONT_MAX = 24;
+
+    let appState = {
+      activeFunctionId: null,
+      leftCollapsed: false,
+      rightCollapsed: false,
+      lastAction: 'init',
+      search: {
+        open: false,
+        query: '',
+        selectedIndex: 0,
+        results: []
+      },
+      hotkeysOpen: false,
+      codeFontSize: CODE_FONT_DEFAULT
+    };
+
+    const setCodeFontSize = (size, {persist = true} = {}) => {
+      const clamped = Math.min(CODE_FONT_MAX, Math.max(CODE_FONT_MIN, Math.round(size)));
+      const lineHeight = Math.round(clamped * 1.4);
+      document.documentElement.style.setProperty('--code-font-size', `${clamped}px`);
+      document.documentElement.style.setProperty('--code-line-height', `${lineHeight}px`);
+      appState.codeFontSize = clamped;
+      if (persist) {
+        try {
+          localStorage.setItem(CODE_FONT_STORAGE_KEY, String(clamped));
+        } catch (_) {
+          // Storage might be unavailable; ignore silently
+        }
+      }
+    };
+
+    const loadCodeFontSize = () => {
+      let stored = null;
+      try {
+        stored = Number(localStorage.getItem(CODE_FONT_STORAGE_KEY));
+      } catch (_) {
+        stored = null;
+      }
+      const initial = Number.isFinite(stored) ? stored : CODE_FONT_DEFAULT;
+      setCodeFontSize(initial, {persist: false});
+    };
+
+    const adjustCodeFontSize = (delta) => {
+      const next = (appState.codeFontSize || CODE_FONT_DEFAULT) + delta;
+      setCodeFontSize(next);
+    };
+
+    // --- RENDERING HELPERS ---
+
+    const neonCardMarkup = (title, subtitle, content, className = '', noPadding = false) => `
+            <div class="relative flex flex-col group ${className}">
+                <div class="relative flex-1 bg-[#060b16]/90 backdrop-blur-xl flex flex-col overflow-hidden shadow-2xl rounded-sm">
+                    <!-- BORDER SYSTEM -->
+                    <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+                    <div class="absolute inset-0 pointer-events-none z-20">
+                        <div class="absolute top-0 left-0 w-px h-0 bg-cyan-500/60 transition-all duration-500 ease-out group-hover:h-20 group-hover:bg-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
+                        <div class="absolute top-0 left-0 h-px w-0 bg-cyan-500/60 transition-all duration-500 ease-out group-hover:w-20 group-hover:bg-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
+                        <div class="absolute bottom-0 right-0 w-px h-10 bg-cyan-900 group-hover:bg-cyan-600 transition-colors"></div>
+                        <div class="absolute bottom-0 right-0 h-px w-10 bg-cyan-900 group-hover:bg-cyan-600 transition-colors"></div>
+                        <div class="absolute top-0 right-0 flex gap-1">
+                          <div class="rounded-tl-sm rounded-bl-md w-10 h-1 bg-cyan-500/80 animate-pulse"></div>
+                          <div class="w-10 h-1 bg-cyan-500/50 "></div>
+                          <div class="w-10 h-1 bg-cyan-500/10 "></div>
+                        </div>
+                        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent -translate-x-full group-hover:animate-[scan-fast_2s_linear_infinite] opacity-0 group-hover:opacity-100"></div>
+                    </div>
+                    <div class="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-cyan-600/50 rounded-bl-sm z-20 group-hover:border-cyan-400 transition-colors"></div>
+                    <div class="absolute inset-0 bg-gradient-to-br from-cyan-500/8 via-transparent to-purple-500/8 pointer-events-none"></div>
+
+                    ${(title || subtitle) ? `
+                        <div class="relative z-10 px-4 py-3 flex items-center justify-between bg-gradient-to-r from-cyan-950/50 via-slate-900/0 to-transparent border-b border-cyan-900/30 shrink-0">
+                            <div class="absolute inset-0 opacity-[0.1] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+                            <div class="flex flex-col gap-0.5">
+                                ${title ? `<div class="relative z-10 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><div class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"></div><h3 class="text-cyan-400 font-display text-xs uppercase tracking-[0.2em] font-bold glitch-text cursor-default">${title}</h3></div></div>` : ''}
+                                ${subtitle ? `<div class="flex items-center gap-2"><span class="text-[9px] font-mono text-cyan-700 tracking-widest uppercase group-hover:text-cyan-500 transition-colors">// ${subtitle}</span></div>` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+            
+                    <div class="relative z-10 flex-1 min-h-0 ${noPadding ? '' : 'p-4'}">
+                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none"></div>
+                        ${content}
+                    </div>
+                </div>
+            </div>
+        `;
+
+    const renderCodeBlock = (code) => {
+      const lineHeight = 'var(--code-line-height, 14px)';
+      const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+
+      const highlightLine = (line) => {
+        const tokenPatterns = [
+          {className: 'token-comment', regex: /\/\/.*/g},
+          {className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g},
+          {className: 'token-string', regex: /`(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g},
+          {className: 'token-regex', regex: /\/(?:\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*(?:$|[,\r\n.;})\]]))/g},
+          {className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g},
+          {className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/g},
+          {className: 'token-type', regex: /\b(?:address|string|bytes\d*|int\d*|uint\d*|bool|u?fixed\d+x\d+|mapping)\b/g},
+          {className: 'token-constant', regex: /\b[A-Z][A-Z\d_]*\b/g},
+          {className: 'token-number', regex: /\b(?:0[xX][\dA-Fa-f]+|0[bB][01]+|0[oO][0-7]+|NaN|Infinity)\b|(?:\b\d+\.?\d*|\B\.\d+)(?:[Ee][+-]?\d+)?/g},
+          {className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*\()/g},
+          {className: 'token-operator', regex: /-[-=]?|\+[+=]?|!=?=?|<<?=?|>>?>?=?|=(?:==?|>)?|&[&=]?|\|[|=]?|\*\*?=?|\/=?|~|\^=?|%=?|\?|\.{3}/g},
+          {className: 'token-modifier', regex: /\b(?:onlyOwner|onlyRole|nonReentrant|override|payable|view|pure|virtual)\b/g}
+        ];
+
+        const tokens = [];
+        tokenPatterns.forEach(({className, regex}, priority) => {
+          regex.lastIndex = 0;
+          let match;
+          while ((match = regex.exec(line)) !== null) {
+            tokens.push({
+              start: match.index,
+              end: match.index + match[0].length,
+              className,
+              text: match[0],
+              priority
+            });
+          }
+        });
+
+        tokens.sort((a, b) => (a.start === b.start ? a.priority - b.priority : a.start - b.start));
+
+        const merged = [];
+        let occupied = 0;
+        tokens.forEach((token) => {
+          if (token.start < occupied) return;
+          merged.push(token);
+          occupied = token.end;
+        });
+
+        let cursor = 0;
+        let result = '';
+
+        merged.forEach((token) => {
+          result += escapeHtml(line.slice(cursor, token.start));
+          result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+          cursor = token.end;
+        });
+
+        result += escapeHtml(line.slice(cursor));
+        return result;
+      };
+
+      const normalizeIndent = (src) => {
+        const lines = src.split('\n');
+        if (!lines.length) return lines;
+        const lastLine = lines[lines.length - 1] ?? '';
+        const m = lastLine.match(/^(\s+)/);
+        const stripLen = m ? m[1].length : 0;
+        if (stripLen === 0) return lines;
+        const strip = (line) => {
+          let i = 0;
+          while (i < stripLen && i < line.length && /\s/.test(line[i])) i += 1;
+          return line.slice(i);
+        };
+        return lines.map(strip);
+      };
+
+      const lines = normalizeIndent(code);
+      const rowsHtml = lines.map((line, i) => `
+                <div class="flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line">
+                  <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-2 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
+                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlightLine(line)}</span>
+                  <div class="absolute inset-0 ml-5 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
+                </div>
+            `).join('');
+
+      return `
+                <div class="relative font-mono code-block overflow-hidden group" style="line-height:${lineHeight};">
+                     <div class="relative overflow-x-auto custom-scrollbar">
+                         <div class="relative z-10 flex flex-col gap-0">
+                             ${rowsHtml}
+                         </div>
+                     </div>
+                </div>
+            `;
+    };
+
+    const extractStructFields = (source = '') => {
+      const match = source.match(/struct\s+\w+\s*{([^}]*)}/s);
+      if (!match) return [];
+      return match[1]
+        .split(';')
+        .map((field) => field.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const cleaned = line.replace(/\s+/g, ' ').trim();
+          const parts = cleaned.split(' ');
+          const name = parts.pop();
+          const type = parts.join(' ');
+          if (!name || !type) return null;
+          return {name, type};
+        })
+        .filter(Boolean);
+    };
+
+    const isStructType = (type = '', source = '') => {
+      return /^struct\b/i.test(type) || /struct\s+\w+\s*{/.test(source || '');
+    };
+
+    const renderStructCard = (item) => {
+      const fields = Array.isArray(item.fields) ? item.fields : extractStructFields(item.source || '');
+      return `
+          <div class="bg-[#0a0f1c] border border-slate-800/60 rounded-sm p-2 group hover:border-teal-500/30 transition-colors">
+              <div class="flex justify-between items-center mb-1">
+                  <span class="text-[9px] font-mono text-teal-300">${item.name || 'structVar'}</span>
+                  <span class="text-[9px] font-mono text-slate-500">${item.type || 'struct'}</span>
+              </div>
+              <div class="pl-3 border-l-2 border-slate-800/50 space-y-0.5">
+                  ${fields.length ? fields.map((field) => `
+                      <div class="text-[9px] font-mono text-slate-400 flex items-center gap-2">
+                          <span class="text-slate-600 w-16 shrink-0">${field.type}</span>
+                          <span class="text-slate-300">${field.name}</span>
+                      </div>
+                  `).join('') : `
+                      <div class="text-[9px] font-mono text-slate-500">Struct fields not available</div>
+                  `}
+              </div>
+          </div>
+      `;
+    };
+
+    const renderScalarRow = (item) => `
+        <div class="bg-[#0a0f1c] border border-slate-800/60 rounded-sm p-2 flex justify-between items-center">
+            <span class="text-[9px] font-mono text-teal-300/80">${item.name || 'stateVar'}</span>
+            <span class="ml-2 text-[9px] font-mono text-slate-600 text-right">${item.type || 'unknown type'}</span>
+        </div>
+    `;
+
+    const renderStorageSection = (items = [], emptyIcon, emptyText) => {
+      if (!items.length) {
+        return `
+            <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
+                <i data-lucide="${emptyIcon}" class="w-4 h-4 text-slate-500"></i>
+                <span>${emptyText}</span>
+            </div>
+        `;
+      }
+
+      return items.map((item) => {
+        return isStructType(item.type, item.source) ? renderStructCard(item) : renderScalarRow(item);
+      }).join('');
+    };
+
+    const buildMarkdownReport = (fnId) => {
+      const fn = functionList.find((f) => f.id === fnId);
+      const graph = callGraphs[fnId] || [];
+      const reads = stateReadsByFunction[fnId] || [];
+      const writes = stateWritesByFunction[fnId] || [];
+      const esc = (text = '') => String(text).replace(/```/g, '\\`\\`\\`');
+      const mdLines = [];
+
+      mdLines.push(`# Execution Flow: ${fn?.signature || 'entry point'}`);
+      mdLines.push(`- Contract: ${fn?.contract || 'Unknown'}`);
+      mdLines.push('');
+      mdLines.push('## Storage Reads (SLOAD)');
+      mdLines.push(reads.length ? reads.map((r) => `- ${r.name || 'stateVar'} (${r.type || 'unknown type'})`).join('\n') : '- none captured');
+      mdLines.push('');
+      mdLines.push('## Storage Writes (SSTORE)');
+      mdLines.push(writes.length ? writes.map((w) => `- ${w.name || 'stateVar'} (${w.type || 'unknown type'})`).join('\n') : '- none captured');
+      mdLines.push('');
+      mdLines.push('## Steps');
+
+      graph.forEach((node, idx) => {
+        mdLines.push(`### ${node.functionName || node.name || 'function'}`);
+        const meta = [];
+        if (node.selector) meta.push(`selector \`${node.selector}\``);
+        if (node.type) meta.push(`type ${node.type}`);
+        if (node.hasMsgSenderCheck) meta.push('checks msg.sender');
+        if (meta.length) mdLines.push(`- ${meta.join('; ')}`);
+        if (node.modifiedStateVariables?.length) {
+          mdLines.push(`- modifies: ${node.modifiedStateVariables.join(', ')}`);
+        }
+        if (node.restrictions?.length) {
+          mdLines.push(`- restrictions:\n${node.restrictions.map((r) => `  - ${r}`).join('\n')}`);
+        }
+        //if (node.calls?.length) {
+        //  mdLines.push(`- calls: ${node.calls.map((c) => c.name || c.selector || c.type).join(', ')}`);
+        //}
+        mdLines.push('');
+        mdLines.push('```solidity');
+        mdLines.push(esc(node.code || '// source unavailable'));
+        mdLines.push('```');
+        mdLines.push('');
+      });
+
+      return mdLines.join('\n');
+    };
+
+    const attachAIAssistantHandler = () => {
+      const btn = document.getElementById('copy-ai-markdown');
+      if (!btn) return;
+      const label = btn.querySelector('[data-copy-label]');
+      btn.onclick = async () => {
+        if (!appState.activeFunctionId) return;
+        const originalLabel = label ? label.textContent : btn.textContent;
+        btn.disabled = true;
+        if (label) label.textContent = 'Copying...';
+        try {
+          const md = buildMarkdownReport(appState.activeFunctionId);
+          await navigator.clipboard.writeText(md);
+          if (label) label.textContent = 'Copied!';
+        } catch (err) {
+          if (label) label.textContent = 'Copy failed';
+          console.error('Clipboard copy failed', err);
+        } finally {
+          setTimeout(() => {
+            const latestBtn = document.getElementById('copy-ai-markdown');
+            if (!latestBtn) return;
+            const latestLabel = latestBtn.querySelector('[data-copy-label]');
+            if (latestLabel) latestLabel.textContent = originalLabel || 'Copy As Markdown';
+            latestBtn.disabled = false;
+          }, 1200);
+        }
+      };
+    };
+
+    const renderStorageReads = (reads = []) => renderStorageSection(
+      reads,
+      'hard-drive',
+      'No storage reads captured for this entry point.'
+    );
+
+    const renderStorageWrites = (writes = []) => renderStorageSection(
+      writes,
+      'database',
+      'No storage writes captured for this entry point.'
+    );
+
+    const renderNodeWidget = (node, index, animate = true) => {
+      // Analyst notes feature removed
+
+      // State modifications widget removed per request
+      const content = `
+                <div class="bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
+                            <i data-lucide="${node.type === 'entry-point' ? 'zap' : 'layers'}" class="w-5 h-5 ${node.type === 'entry-point' ? 'text-cyan-400' : 'text-cyan-900'}"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${node.name.length > 50 ? node.name.slice(0, 50) + '...' : node.name}"></h3>
+                            </div>
+                            <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
+                                <i data-lucide="box" class="w-3 h-3 text-cyan-600"></i>
+                                <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${node.contractName}.sol</span>
+                                <i data-lucide="radical" class="w-3 h-3 text-purple-400 animate-pulse"></i>
+                                <div class="text-purple-400 font-mono flex items-center font-bold mt-[1px]">COMPLEXITY LVL. ${node.complexity} </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-6">
+
+                    ${renderCodeBlock(node.code)}
+
+
+                </div>
+            `;
+
+      return `
+                <div class="relative pb-4 last:pb-0 ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}">
+                     ${neonCardMarkup('', '', content, 'w-full', true)}
+                </div>
+            `;
+    };
+
+    // --- GLOBAL ACTIONS ---
+    const scrollActiveFunctionIntoView = () => {
+      if (!appState.activeFunctionId) return;
+      const activeBtn = document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`);
+      if (activeBtn) {
+        activeBtn.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: 'smooth'});
+      }
+    };
+
+    window.selectFunction = (id) => {
+      const focused = document.activeElement;
+      if (focused && focused.matches('[data-fn-id]')) {
+        focused.blur();
+      }
+      appState.activeFunctionId = id;
+      appState.lastAction = 'select-function';
+      renderApp();
+      scrollActiveFunctionIntoView();
+    };
+
+    let appInitialized = false;
+
+    const stepFunctionSelection = (direction = 1) => {
+      if (!functionList.length) return;
+      const total = functionList.length;
+      const currentIndex = functionList.findIndex((fn) => fn.id === appState.activeFunctionId);
+      const nextIndex = currentIndex === -1
+        ? (direction > 0 ? 0 : total - 1)
+        : (currentIndex + direction + total) % total;
+      const target = functionList[nextIndex];
+      if (target) {
+        appState.activeFunctionId = target.id;
+        appState.lastAction = 'select-function';
+        renderApp();
+        scrollActiveFunctionIntoView();
+      }
+    };
+
+    const updateSidebarSelection = () => {
+      const buttons = document.querySelectorAll('[data-fn-id]');
+      buttons.forEach((btn) => {
+        const isActive = btn.getAttribute('data-fn-id') === appState.activeFunctionId;
+        btn.classList.toggle('bg-gradient-to-r', isActive);
+        btn.classList.toggle('from-cyan-950/60', isActive);
+        btn.classList.toggle('to-transparent', isActive);
+        btn.classList.toggle('border-cyan-400', isActive);
+        btn.classList.toggle('border-transparent', !isActive);
+        btn.classList.toggle('bg-transparent', !isActive);
+
+        const iconWrap = btn.querySelector('[data-role="fn-icon-wrap"]');
+        if (iconWrap) {
+          iconWrap.className = `w-6 h-6 flex items-center justify-center rounded-sm border ${isActive ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}`;
+        }
+
+        const title = btn.querySelector('[data-role="fn-title"]');
+        if (title) {
+          title.className = `font-display text-xs font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
+        }
+      });
+    };
+
+    const ensureDeviceGuard = () => {
+      if (deviceGuardEl) return deviceGuardEl;
+      deviceGuardEl = document.createElement('div');
+      deviceGuardEl.id = 'device-guard';
+      deviceGuardEl.className = 'fixed inset-0 z-50 hidden lg:hidden bg-[#040812] flex items-center justify-center px-6';
+      deviceGuardEl.innerHTML = `
+        <div class="relative max-w-lg w-full">
+          <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+          <div class="relative border border-cyan-900/40 bg-[#060b16]/90 backdrop-blur-xl rounded-sm shadow-2xl p-8 flex flex-col items-center text-center space-y-4">
+            <div class="flex items-center gap-2 text-cyan-400 font-display tracking-[0.2em] text-xs uppercase">
+              <i data-lucide="monitor-smartphone" class="w-4 h-4"></i>
+              <span>Desktop Required</span>
+            </div>
+            <p class="text-slate-200 font-display text-lg">This experience is crafted for widescreen desktops.</p>
+            <p class="text-slate-500 font-mono text-xs leading-relaxed">Please switch to a screen width of at least 1024px to explore the visualization. Resize your window or open on a desktop display.</p>
+            <div class="flex items-center gap-2 text-[10px] font-mono text-cyan-700 uppercase tracking-widest">
+              <div class="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.7)] animate-pulse"></div>
+              awaiting widescreen signal...
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(deviceGuardEl);
+      lucide.createIcons();
+      return deviceGuardEl;
+    };
+
+    const applyResponsiveGuard = () => {
+      const guard = ensureDeviceGuard();
+      const root = document.getElementById('root');
+      const isDesktop = window.innerWidth >= 1024;
+      if (root) root.style.display = isDesktop ? 'flex' : 'none';
+      guard.style.display = isDesktop ? 'none' : 'flex';
+    };
+
+    const applySidebarVisibility = () => {
+      const leftEl = document.getElementById('sidebar-left');
+      if (leftEl) {
+        leftEl.classList.toggle('hidden', appState.leftCollapsed);
+        leftEl.classList.toggle('w-80', !appState.leftCollapsed);
+        leftEl.classList.toggle('shrink-0', !appState.leftCollapsed);
+      }
+
+      const rightEl = document.getElementById('sidebar-right');
+      if (rightEl) {
+        rightEl.classList.toggle('hidden', appState.rightCollapsed);
+        rightEl.classList.toggle('w-96', !appState.rightCollapsed);
+        rightEl.classList.toggle('shrink-0', !appState.rightCollapsed);
+      }
+    };
+
+    const startOutroRedirect = (url) => {
+      const target = url.startsWith('/') ? url : `/${url}`;
+      let redirected = false;
+      const doRedirect = () => {
+        if (redirected) return;
+        redirected = true;
+        window.location.href = target;
+      };
+
+      if (!outroOverlay) {
+        doRedirect();
+        return;
+      }
+      outroOverlay.classList.add('fade-in');
+      const go = () => {
+        outroOverlay.removeEventListener('transitionend', go);
+        doRedirect();
+      };
+      outroOverlay.addEventListener('transitionend', go, {once: true});
+      // Fallback in case transitionend never fires
+      setTimeout(doRedirect, 800);
+    };
+
+    const toggleSidebar = (side) => {
+      if (side === 'left') {
+        appState.leftCollapsed = !appState.leftCollapsed;
+        appState.lastAction = 'toggle-left';
+      }
+      if (side === 'right') {
+        appState.rightCollapsed = !appState.rightCollapsed;
+        appState.lastAction = 'toggle-right';
+      }
+      applySidebarVisibility();
+
+      if (side === 'left' && !appState.leftCollapsed) {
+        const leftEl = document.getElementById('sidebar-left');
+        if (leftEl) {
+          leftEl.classList.remove('animate-slideLeft', 'animate-slideRight', 'animate-fadeIn');
+          void leftEl.offsetWidth;
+          leftEl.classList.add('animate-slideRight');
+        }
+      }
+
+      if (side === 'right' && !appState.rightCollapsed) {
+        const rightEl = document.getElementById('sidebar-right');
+        if (rightEl) {
+          rightEl.classList.remove('animate-fadeIn', 'animate-slideRight', 'animate-slideLeft');
+          // Force reflow to restart animation
+          void rightEl.offsetWidth;
+          rightEl.classList.add('animate-slideLeft');
+        }
+      }
+    };
+
+    let scrollCooldown = false;
+    const scrollMain = (delta) => {
+      if (scrollCooldown) return;
+      scrollCooldown = true;
+      const mainScroll = document.querySelector('#main-flow .overflow-y-auto');
+      if (mainScroll) mainScroll.scrollBy({top: delta, behavior: 'smooth'});
+      setTimeout(() => {
+        scrollCooldown = false;
+      }, 180);
+    };
+
+    const scrollMainTo = (position) => {
+      if (scrollCooldown) return;
+      scrollCooldown = true;
+      const mainScroll = document.querySelector('#main-flow .overflow-y-auto');
+      if (mainScroll) mainScroll.scrollTo({top: position, behavior: 'smooth'});
+      setTimeout(() => {
+        scrollCooldown = false;
+      }, 180);
+    };
+
+    const filterFunctions = (q = '') => {
+      if (!functionList.length) return [];
+      const needle = q.trim().toLowerCase();
+      const list = needle
+        ? functionList.filter((fn) =>
+          fn.name.toLowerCase().includes(needle) ||
+          fn.signature.toLowerCase().includes(needle) ||
+          fn.contract.toLowerCase().includes(needle)
+        )
+        : functionList;
+      return list.slice(0, 25);
+    };
+
+    const ensureSearchPalette = () => {
+      if (searchPaletteEl) return searchPaletteEl;
+      searchPaletteEl = document.createElement('div');
+      searchPaletteEl.id = 'search-palette';
+      searchPaletteEl.className = 'fixed inset-0 z-50 hidden';
+      searchPaletteEl.innerHTML = `
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
+        <div class="absolute inset-0 pointer-events-none opacity-50">
+          <svg class="w-full h-full">
+            <defs>
+              <pattern id="popup-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#popup-grid)" />
+          </svg>
+        </div>
+        <div class="absolute inset-0 flex items-start justify-center pt-24 px-4 md:px-8">
+          <div class="relative w-full max-w-3xl">
+            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+              <div class="flex items-center gap-3 px-4 py-3 border-b border-cyan-900/40 bg-cyan-950/30">
+                <div id="search-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
+                <input id="search-input" type="text" autocomplete="off" placeholder=""
+                  class="flex-1 bg-transparent outline-none text-cyan-200 placeholder:text-cyan-800 font-display text-sm caret-transparent font-bold tracking-wide text-glow" />
+              </div>
+              <div id="search-results" class="max-h-96 overflow-y-auto custom-scrollbar divide-y divide-cyan-900/40"></div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(searchPaletteEl);
+      lucide.createIcons();
+
+      const input = searchPaletteEl.querySelector('#search-input');
+      input.addEventListener('input', (e) => {
+        appState.search.query = e.target.value;
+        appState.search.selectedIndex = 0;
+        updateSearchResults();
+      });
+
+      input.addEventListener('keydown', (e) => {
+        const caret = searchPaletteEl.querySelector('#search-caret');
+        if (caret) caret.classList.remove('hidden');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          e.stopPropagation();
+          const max = appState.search.results.length;
+          if (max) appState.search.selectedIndex = (appState.search.selectedIndex + 1) % max;
+          updateSearchHighlight();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          const max = appState.search.results.length;
+          if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
+          updateSearchHighlight();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          activateSearchSelection();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeSearchPalette();
+        }
+      });
+
+      return searchPaletteEl;
+    };
+
+    const ensureHotkeyHelp = () => {
+      if (hotkeyHelpEl) return hotkeyHelpEl;
+      hotkeyHelpEl = document.createElement('div');
+      hotkeyHelpEl.id = 'hotkey-help';
+      hotkeyHelpEl.className = 'fixed inset-0 z-50 hidden';
+      hotkeyHelpEl.innerHTML = `
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
+        <div class="absolute inset-0 pointer-events-none opacity-40">
+          <svg class="w-full h-full">
+            <defs>
+              <pattern id="hotkey-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#hotkey-grid)" />
+          </svg>
+        </div>
+        <div class="absolute inset-0 flex items-start justify-center pt-24 px-4 md:px-8">
+          <div class="relative w-full max-w-2xl">
+            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
+                ${[
+          ['e', 'Open command palette'],
+          ['c', 'Copy as Markdown'],
+          ['n', 'Next entry point'],
+          ['p', 'Previous entry point'],
+          ['l', 'Toggle left sidebar'],
+          ['r', 'Toggle right sidebar'],
+          ['d / u', 'Scroll down / up'],
+          ['+ / -', 'Increase / decrease code font'],
+          ['g', 'Jump to top'],
+          ['Shift+g', 'Jump to bottom'],
+          ['h / Backspace', 'Return to home'],
+          ['?', 'Show this help'],
+          ['Enter / Esc', 'Select / close'],
+        ].map(([k, desc]) => `
+                  <div class="flex items-center justify-between px-3 py-2 border border-cyan-900/50 bg-cyan-950/20 rounded-sm shadow-[0_0_10px_rgba(6,182,212,0.08)]">
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-1 border border-cyan-800/60 rounded-sm bg-cyan-900/30 font-display text-[10px] tracking-wide font-bold uppercase text-cyan-100 text-glow">${k}</span>
+                    </div>
+                    <span class="text-[9px] font-mono text-cyan-200 uppercase tracking-widest">${desc}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(hotkeyHelpEl);
+      lucide.createIcons();
+      return hotkeyHelpEl;
+    };
+
+    const updateSearchHighlight = () => {
+      const rows = searchPaletteEl?.querySelectorAll('[data-search-index]');
+      rows?.forEach((row) => {
+        const idx = Number(row.getAttribute('data-search-index'));
+        row.classList.toggle('bg-cyan-900/40', idx === appState.search.selectedIndex);
+        row.classList.toggle('border-l-2', idx === appState.search.selectedIndex);
+        row.classList.toggle('border-cyan-500', idx === appState.search.selectedIndex);
+      });
+    };
+
+    const updateSearchResults = () => {
+      ensureSearchPalette();
+      const resultsEl = searchPaletteEl.querySelector('#search-results');
+      appState.search.results = filterFunctions(appState.search.query);
+      const markup = appState.search.results.map((fn, idx) => `
+        <button data-search-index="${idx}" data-fn-id="${fn.id}"
+          class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-cyan-900/30 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
+              <i data-lucide="${fn.type === 'write' ? 'zap' : 'hexagon'}" class="w-4 h-4 text-${fn.type === 'write' ? 'cyan-300' : 'slate-300'}"></i>
+            </div>
+            <div class="flex flex-col">
+              <span class="font-display font-bold tracking-wide text-sm text-cyan-200 text-glow">${fn.name}</span>
+              <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="box" class="lucide lucide-box w-3 h-3 text-cyan-600"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${fn.contract}.sol</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-[11px] font-mono text-slate-500 truncate max-w-[220px]">${fn.signature}</div>
+        </button>
+      `).join('') || `<div class="px-4 py-6 text-center text-slate-500 font-mono text-xs">No matches found.</div>`;
+      resultsEl.innerHTML = markup;
+      resultsEl.querySelectorAll('button[data-fn-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-fn-id');
+          if (id) {
+            selectFunction(id);
+            closeSearchPalette();
+          }
+        });
+      });
+      updateSearchHighlight();
+      lucide.createIcons();
+    };
+
+    const openSearchPalette = () => {
+      ensureSearchPalette();
+      appState.search.open = true;
+      appState.search.query = '';
+      appState.search.selectedIndex = 0;
+      updateSearchResults();
+      searchPaletteEl.classList.remove('hidden');
+      setTimeout(() => {
+        const input = searchPaletteEl.querySelector('#search-input');
+        if (input) {
+          input.value = '';
+          input.focus();
+        }
+      }, 0);
+    };
+
+    const closeSearchPalette = () => {
+      if (!searchPaletteEl) return;
+      appState.search.open = false;
+      searchPaletteEl.classList.add('hidden');
+    };
+
+    const openHotkeyHelp = () => {
+      ensureHotkeyHelp();
+      appState.hotkeysOpen = true;
+      hotkeyHelpEl.classList.remove('hidden');
+    };
+
+    const closeHotkeyHelp = () => {
+      if (!hotkeyHelpEl) return;
+      appState.hotkeysOpen = false;
+      hotkeyHelpEl.classList.add('hidden');
+    };
+
+    const activateSearchSelection = () => {
+      const targetFn = appState.search.results[appState.search.selectedIndex];
+      if (targetFn) {
+        selectFunction(targetFn.id);
+        closeSearchPalette();
+      }
+    };
+
+    const renderLeftSidebar = () => {
+      const leftAnimationClass = appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight';
+      return `
+                <aside id="sidebar-left" class="${appState.leftCollapsed ? 'hidden' : 'w-80 shrink-0'} h-full flex flex-col ${leftAnimationClass}">
+                    ${neonCardMarkup('Modules', 'Entry Points', `
+                        <div class="absolute inset-0 flex flex-col">
+                            <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
+                                <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20"><i data-lucide="mouse-pointer-click" class="w-4 h-4 text-slate-400"></i></div>
+                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Entry Points</span><span class="text-[9px] text-cyan-700 font-mono">${functionList.length} FUNCTIONS LOADED</span></div>
+                            </div>
+                            <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                ${functionList.map((fn) => `
+                                    <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 flex items-center justify-between ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+                                        <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
+                                        <div class="relative z-10 flex items-center gap-3">
+                                            <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${appState.activeFunctionId === fn.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
+                                                <i data-lucide="${fn.type === 'write' ? 'zap' : 'hexagon'}" class="w-3 h-3"></i>
+                                            </div>
+                                            <div class="flex flex-col">
+                                                <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
+                                                <span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${fn.signature}</span>
+                                            </div>
+                                        </div>
+                                    </button>
+                                `).join('')}
+                            </div>
+                            <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
+                                  <div class="flex space-x-1"><div class="w-1.5 h-1.5 bg-cyan-400 rounded-sm animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></div><div class="w-1.5 h-1.5 bg-cyan-900/50 rounded-sm"></div><div class="w-1.5 h-1.5 bg-cyan-900/30 rounded-sm"></div></div>
+                                 <span class="text-[8px] font-mono text-cyan-800 uppercase">may the bugs be with you</span>
+                            </div>
+                        </div>
+                    `, 'h-full', true)}
+                </aside>
+            `;
+    };
+
+    // --- MAIN RENDER LOOP ---
+    const renderApp = () => {
+      const container = document.getElementById('app-container');
+      const isEntrySwitch = appInitialized && appState.lastAction === 'select-function';
+      if (!functionList.length) {
+        container.innerHTML = `
+          <div class="flex-1 flex items-center justify-center">
+            <div class="flex flex-col items-center gap-4 text-center px-6 py-8 border border-cyan-900/40 bg-[#060b16]/80 rounded-sm shadow-lg max-w-md">
+              <div class="flex items-center gap-2 text-cyan-400 font-display tracking-[0.2em] text-xs font-bold glitch-text tracking-[0.2em] uppercase"> 
+                NO ENTRY POINTS FOUND
+              </div>
+              </div>
+            </div>
+          </div>
+        `;
+        lucide.createIcons();
+        const retryBtn = document.getElementById('retry-generate');
+        if (retryBtn) retryBtn.addEventListener('click', () => window.location.reload());
+        const backBtn = document.getElementById('back-home');
+        if (backBtn) backBtn.addEventListener('click', () => startOutroRedirect('/index.html'));
+        return;
+      }
+
+      if (!appState.activeFunctionId) {
+        appState.activeFunctionId = functionList[0].id;
+      }
+
+      const graph = callGraphs[appState.activeFunctionId] || [];
+      const storageReads = stateReadsByFunction[appState.activeFunctionId] || [];
+      const storageWrites = stateWritesByFunction[appState.activeFunctionId] || [];
+      const mainAnimationClass = isEntrySwitch ? '' : 'animate-fadeIn';
+
+      // Main Flow
+      const mainFlow = `
+                <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
+                     <div class="h-full flex flex-col">
+                        <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
+                            <div class="mx-auto">
+                                ${graph.map((node, i) => renderNodeWidget(node, i, !isEntrySwitch)).join('')}
+                                <div class="pl-8 pt-4 pb-12 opacity-50 flex items-center gap-4 animate-pulse">
+                                    <div class="w-3 h-3 rounded-full bg-slate-800 border border-slate-600"></div>
+                                    <div class="h-px w-20 bg-gradient-to-r from-slate-600 to-transparent"></div>
+                                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">End of Execution Stream</span>
+                                </div>
+                            </div>
+                        </div>
+                     </div>
+                </section>
+      `;
+
+      // Right Sidebar
+      const rightAnimationClass = isEntrySwitch
+        ? ''
+        : (appState.lastAction === 'toggle-right' ? 'animate-slideLeft' : 'animate-fadeIn');
+      const rightSidebar = `
+                 <aside id="sidebar-right" class="${appState.rightCollapsed ? 'hidden' : 'w-96 shrink-0'} h-full flex flex-col gap-4 overflow-hidden ${rightAnimationClass}" style="${rightAnimationClass ? 'animation-delay: 200ms' : ''}">
+
+                    ${neonCardMarkup('AI assistant', 'Get help understanding the code', `
+                              <div class="relative z-10 flex-1 min-h-0 p-4">
+                                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none"></div>
+                                <div class="relative z-10">
+                                    <div class="absolute -inset-1 bg-gradient-to-r from-purple-500/20 to-blue-500/20 blur opacity-50"></div>
+                                    <div class="relative bg-[#081020] border border-cyan-900/30 p-3 rounded-sm">
+                                      <div class="flex items-start gap-3 mb-3">
+                                          <div class="w-8 h-8 rounded-sm bg-purple-900/30 border border-purple-500/30 flex items-center justify-center shrink-0">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot w-4 h-4 text-purple-400" aria-hidden="true">
+                                                <path d="M12 8V4H8"></path>
+                                                <rect width="16" height="12" x="4" y="8" rx="2"></rect>
+                                                <path d="M2 14h2"></path>
+                                                <path d="M20 14h2"></path>
+                                                <path d="M15 13v2"></path>
+                                                <path d="M9 13v2"></path>
+                                            </svg>
+                                          </div>
+                                          <div class="text-[10px] text-slate-300 leading-relaxed font-mono">Copy this entry point’s execution flow as Markdown for use with your AI assistant.</div>
+                                      </div>
+                                      <div class="grid grid-cols-1 gap-2">
+                                          <button id="copy-ai-markdown" class="relative font-display uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden group border select-none bg-slate-900/40 text-slate-400 border-slate-700 hover:border-slate-500 hover:text-slate-200 hover:bg-slate-800 text-[10px] px-3 py-1.5 rounded-none w-full text-[9px]">
+                                            <div class="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-current opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                                            <div class="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-current opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                                            <span class="relative z-10 flex items-center gap-2 font-bold">
+                                                <span class="w-3.5 h-3.5">
+                                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy w-3 h-3" aria-hidden="true">
+                                                      <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+                                                      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                                                  </svg>
+                                                </span>
+                                                <span data-copy-label>Copy As Markdown</span>
+                                            </span>
+                                          </button>
+                                      </div>
+                                    </div>
+                                </div>
+                              </div>
+                            </div>
+                        </div>
+                    `, 'flex-1 min-h-[150px] max-h-[190px]', true)}
+                    ${neonCardMarkup('SLOAD', 'Storage variables read', `
+                        <div class="absolute inset-0 flex flex-col bg-[#050a14]">
+                            <div class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 relative">
+                                <div class="absolute inset-0 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none"></div>
+                                ${renderStorageReads(storageReads)}
+                            </div>
+                        </div>
+                    `, 'flex-1 min-h-[150px]', true)}
+                    ${neonCardMarkup('SSTORE', 'Storage variables written', `
+                        <div class="absolute inset-0 flex flex-col bg-[#050a14]">
+                            <div class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 relative">
+                                <div class="absolute inset-0 bg-gradient-to-b from-cyan-500/5 via-transparent to-transparent pointer-events-none"></div>
+                                ${renderStorageWrites(storageWrites)}
+                            </div>
+                        </div>
+                    `, 'flex-1 min-h-[150px]', true)}
+                 </aside>
+            `;
+
+      if (!appInitialized) {
+        container.innerHTML = renderLeftSidebar() + mainFlow + rightSidebar;
+        appInitialized = true;
+      } else {
+        const mainEl = document.getElementById('main-flow');
+        const rightEl = document.getElementById('sidebar-right');
+        if (mainEl) mainEl.outerHTML = mainFlow;
+        if (rightEl) rightEl.outerHTML = rightSidebar;
+        updateSidebarSelection();
+      }
+
+      // Re-init Icons
+      lucide.createIcons();
+
+      attachAIAssistantHandler();
+      applySidebarVisibility();
+
+      // Init Typing Effects
+      document.querySelectorAll('.typing-text').forEach(el => {
+        const text = el.getAttribute('data-text');
+        el.innerText = '';
+        let i = 0;
+        const interval = setInterval(() => {
+          if (i < text.length) {
+            el.innerText += text.charAt(i);
+            i++;
+          } else {
+            clearInterval(interval);
+          }
+        }, 20);
+      });
+
+      appState.lastAction = 'idle';
+    };
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+      outroOverlay = document.getElementById('outro-overlay');
+      loadCodeFontSize();
+      const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
+      functionList = hydrated.functions;
+      callGraphs = hydrated.callGraphs;
+      stateReadsByFunction = hydrated.stateReads;
+      stateWritesByFunction = hydrated.stateWrites;
+      appState.activeFunctionId = functionList[0]?.id || null;
+
+      ensureSearchPalette();
+      document.addEventListener('keydown', (event) => {
+        const key = event.key?.toLowerCase();
+        const target = event.target;
+        const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+        const isPaletteInput = searchPaletteEl && searchPaletteEl.contains(target);
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+        // When palette is open, only palette controls are active
+        if (appState.search.open) {
+          if (key === 'escape') {
+            event.preventDefault();
+            closeSearchPalette();
+          } else if (key === 'enter') {
+            event.preventDefault();
+            activateSearchSelection();
+          } else if (key === 'arrowdown') {
+            event.preventDefault();
+            const max = appState.search.results.length;
+            if (max) appState.search.selectedIndex = (appState.search.selectedIndex + 1) % max;
+            updateSearchHighlight();
+          } else if (key === 'arrowup') {
+            event.preventDefault();
+            const max = appState.search.results.length;
+            if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
+            updateSearchHighlight();
+          }
+          return;
+        }
+
+        // When hotkey help is open, only allow closing
+        if (appState.hotkeysOpen) {
+          if (key === 'escape' || key === '?') {
+            event.preventDefault();
+            closeHotkeyHelp();
+          }
+          return;
+        }
+
+        if (key === 'h' || key === 'backspace') {
+          event.preventDefault();
+          startOutroRedirect('/index.html');
+          return;
+        }
+
+        if (isTyping) return;
+
+        if (key === 'l') {
+          event.preventDefault();
+          toggleSidebar('left');
+        } else if (key === 'r') {
+          event.preventDefault();
+          toggleSidebar('right');
+        } else if (key === 'd') {
+          event.preventDefault();
+          scrollMain(260);
+        } else if (key === 'u') {
+          event.preventDefault();
+          scrollMain(-260);
+        } else if (key === '+') {
+          event.preventDefault();
+          adjustCodeFontSize(1);
+        } else if (key === '-') {
+          event.preventDefault();
+          adjustCodeFontSize(-1);
+        } else if (key === 'g' && event.shiftKey) { // 'G'
+          event.preventDefault();
+          scrollMainTo(Number.MAX_SAFE_INTEGER);
+        } else if (key === 'g') {
+          event.preventDefault();
+          scrollMainTo(0);
+        } else if (key === 'e') {
+          event.preventDefault();
+          openSearchPalette();
+        } else if (key === 'n') {
+          event.preventDefault();
+          stepFunctionSelection(1);
+        } else if (key === 'p') {
+          event.preventDefault();
+          stepFunctionSelection(-1);
+        } else if (key === '?') {
+          event.preventDefault();
+          openHotkeyHelp();
+        } else if (key === 'c') {
+          event.preventDefault();
+          const copyBtn = document.getElementById('copy-ai-markdown');
+          if (copyBtn && !copyBtn.disabled) copyBtn.click();
+        }
+      });
+
+      renderApp();
+      appState.lastAction = 'idle';
+      applyResponsiveGuard();
+      window.addEventListener('resize', applyResponsiveGuard);
+
+      attachAIAssistantHandler();
+    });
+
+  </script>
+</body>
+
+</html>
