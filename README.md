@@ -1,5 +1,9 @@
 # OnboardMe (Experimental)
 
+Below is a short user interface walkthrough, starting from the homepage, then typing `mainnet:0x..smart-contract-address` to visit a smart contract, and navigating its entry points:
+
+https://github.com/user-attachments/assets/fc6cabcb-f3c2-4335-88d0-a79dde1187a2
+
 > ⚠️ This is a highly experimental tool. It may fail on some contracts, compilers, or Slither versions. Expect sharp edges.
 
 Jumping between multiple files (contracts and libraries) is not the easiest way to study the execution flow of a Solidity smart contract.
