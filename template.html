@@ -503,9 +503,9 @@
       const lines = normalizeIndent(code);
       const rowsHtml = lines.map((line, i) => `
                 <div class="flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line">
-                  <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-2 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
+                  <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
                   <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlightLine(line)}</span>
-                  <div class="absolute inset-0 ml-5 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
+                  <div class="absolute inset-0 ml-8 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
                 </div>
             `).join('');
 
