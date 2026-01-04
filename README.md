@@ -12,9 +12,7 @@ Ideally, you want one scrollable view showing every internal function and state 
 
 OnboardMe gives you that. Press n to jump to the next entry point (no matter where it’s defined) while keeping the entire flow in view.
 
-It doesn’t replace your IDE; it’s just the fastest way to understand unfamiliar smart contracts, so you can dive deeper with your IDE when needed.
-
-It does not replace IDEs. Instead, it helps you build a high-level mental model first, so you can later dive deeper with your IDE when needed.
+It doesn’t replace your IDE; it’s just the fastest way to understand all possible execution paths, so you can dive deeper with your IDE when needed.
 
 > Tip: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow.
 
