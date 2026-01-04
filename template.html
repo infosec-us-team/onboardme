@@ -485,6 +485,91 @@
         return result;
       };
 
+      const findBlockStart = (line, fromIndex = 0) => {
+        let inSingle = false;
+        let inDouble = false;
+        let inTemplate = false;
+        let escape = false;
+        for (let i = fromIndex; i < line.length - 1; i += 1) {
+          const ch = line[i];
+          if (escape) {
+            escape = false;
+            continue;
+          }
+          if (inSingle) {
+            if (ch === "\\") escape = true;
+            else if (ch === "'") inSingle = false;
+            continue;
+          }
+          if (inDouble) {
+            if (ch === "\\") escape = true;
+            else if (ch === '"') inDouble = false;
+            continue;
+          }
+          if (inTemplate) {
+            if (ch === "\\") escape = true;
+            else if (ch === "`") inTemplate = false;
+            continue;
+          }
+          if (ch === "'") {
+            inSingle = true;
+            continue;
+          }
+          if (ch === '"') {
+            inDouble = true;
+            continue;
+          }
+          if (ch === "`") {
+            inTemplate = true;
+            continue;
+          }
+          if (ch === "/" && line[i + 1] === "/") return -1;
+          if (ch === "/" && line[i + 1] === "*") return i;
+        }
+        return -1;
+      };
+
+      const highlightLineWithState = (line, inBlockComment) => {
+        let result = "";
+        let index = 0;
+        let inBlock = inBlockComment;
+
+        while (index < line.length) {
+          if (inBlock) {
+            const endIdx = line.indexOf("*/", index);
+            if (endIdx === -1) {
+              result += `<span class="token-comment">${escapeHtml(line.slice(index))}</span>`;
+              return { html: result, inBlockComment: true };
+            }
+            result += `<span class="token-comment">${escapeHtml(line.slice(index, endIdx + 2))}</span>`;
+            index = endIdx + 2;
+            inBlock = false;
+            continue;
+          }
+
+          const startIdx = findBlockStart(line, index);
+          if (startIdx === -1) {
+            result += highlightLine(line.slice(index));
+            return { html: result, inBlockComment: false };
+          }
+
+          if (startIdx > index) {
+            result += highlightLine(line.slice(index, startIdx));
+          }
+
+          const endIdx = line.indexOf("*/", startIdx + 2);
+          if (endIdx === -1) {
+            result += `<span class="token-comment">${escapeHtml(line.slice(startIdx))}</span>`;
+            return { html: result, inBlockComment: true };
+          }
+
+          result += `<span class="token-comment">${escapeHtml(line.slice(startIdx, endIdx + 2))}</span>`;
+          index = endIdx + 2;
+        }
+
+        return { html: result, inBlockComment: inBlock };
+      };
+
       const normalizeIndent = (src) => {
         const lines = src.split('\n');
         if (!lines.length) return lines;
@@ -501,13 +586,18 @@
       };
 
       const lines = normalizeIndent(code);
-      const rowsHtml = lines.map((line, i) => `
+      let inBlockComment = false;
+      const rowsHtml = lines.map((line, i) => {
+        const highlighted = highlightLineWithState(line, inBlockComment);
+        inBlockComment = highlighted.inBlockComment;
+        return `
                 <div class="flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line">
                   <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
-                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlightLine(line)}</span>
+                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlighted.html}</span>
                   <div class="absolute inset-0 ml-8 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
                 </div>
-            `).join('');
+            `;
+      }).join('');
 
       return `
                 <div class="relative font-mono code-block overflow-hidden group" style="line-height:${lineHeight};">
