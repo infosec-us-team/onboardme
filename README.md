@@ -6,13 +6,13 @@ https://github.com/user-attachments/assets/fc6cabcb-f3c2-4335-88d0-a79dde1187a2
 
 > ⚠️ This is a highly experimental tool. It may fail on some contracts, compilers, or Slither versions. Expect sharp edges.
 
-Jumping between multiple files (contracts and libraries) is not the easiest way to study the execution flow of a Solidity smart contract.
+Jumping between files and tabs isn’t a great way to study an entry point in a Solidity smart contract.
 
-Ideally, a security researcher should see every internal function and global variable touched by an entry point on a single, scrollable page.
+Ideally, you want one scrollable view showing every internal function and state variable the entry point touches.
 
-OnboardMe does exactly that. With a single keypress (n), you move from one entry point to the next—regardless of where it’s implemented—while viewing all related internal functions and state in one place.
+OnboardMe gives you that. Press n to jump to the next entry point (no matter where it’s defined) while keeping the entire flow in view.
 
-OnboardMe is the fastest way to understand complex Solidity smart contracts.
+It doesn’t replace your IDE; it’s just the fastest way to understand unfamiliar smart contracts, so you can dive deeper with your IDE when needed.
 
 It does not replace IDEs. Instead, it helps you build a high-level mental model first, so you can later dive deeper with your IDE when needed.
 
