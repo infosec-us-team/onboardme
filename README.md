@@ -50,6 +50,8 @@ Press `?` for a list of shortcuts.
 
 ## Quick start (recommended UI flow)
 
+Requires **Python 3.10 or newer**.
+
 ```bash
 # 1) Create a venv (recommended)
 python3 -m venv .venv
