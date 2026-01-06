@@ -50,6 +50,12 @@ Press `?` for a list of shortcuts.
 
 ## Quick start (recommended UI flow)
 
+Create a file named `.env` and add your ETHERSCAN_API_KEY:
+
+```env
+ETHERSCAN_API_KEY=...
+```
+
 Requires **Python 3.10 or newer**.
 
 ```bash
@@ -103,14 +109,6 @@ Response:
   "url": "/mainnet_0x....html",
   "contracts": ["ContractA", "ContractB"]
 }
-```
-
-## Configuration
-
-Create a file named `.env` and add your ETHERSCAN_API_KEY:
-
-```env
-ETHERSCAN_API_KEY=...
 ```
 
 ## Project layout
