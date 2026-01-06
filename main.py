@@ -659,6 +659,10 @@ def generate_html(address: str, chain: str = DEFAULT_CHAIN, output_dir: Path | N
     inner_json = data_json[1:-1].strip() if len(data_json) > 2 else ""
     filled_html = template_html.replace(
         "REPLACE_THIS_WITH_ENTRY_POINTS_DATA", inner_json
+    ).replace(
+        "REPLACE_THIS_WITH_CHAIN", chain
+    ).replace(
+        "REPLACE_THIS_WITH_ADDRESS", address
     )
 
     output_dir = output_dir or Path("src")
