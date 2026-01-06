@@ -257,6 +257,8 @@
 
   <script>
     // --- DATA LOADING ---
+    const CONTRACT_CHAIN = 'REPLACE_THIS_WITH_CHAIN';
+    const CONTRACT_ADDRESS = 'REPLACE_THIS_WITH_ADDRESS';
     const ENTRY_POINTS_DATA = [
       REPLACE_THIS_WITH_ENTRY_POINTS_DATA
     ];
@@ -269,6 +271,8 @@
     let searchPaletteEl = null;
     let hotkeyHelpEl = null;
     let outroOverlay = null;
+    let addressCopyTimeout = null;
+    let lastAddressCopyAt = 0;
 
     const normalizeId = (text, suffix = '') => {
       const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -389,6 +393,40 @@
 
     // --- RENDERING HELPERS ---
 
+    const copyText = async (text) => {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {
+        // Clipboard API may be unavailable (non-HTTPS). Fall back.
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'absolute';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (_) {
+        // Ignore copy failures silently.
+      }
+      document.body.removeChild(textarea);
+    };
+
+    const flashCopiedAddress = () => {
+      const el = document.getElementById('contract-address-display');
+      if (!el) return;
+      const original = el.getAttribute('data-address') || CONTRACT_ADDRESS;
+      el.textContent = '// Copied!';
+      if (addressCopyTimeout) clearTimeout(addressCopyTimeout);
+      addressCopyTimeout = setTimeout(() => {
+        el.textContent = `// ${original}`;
+      }, 1200);
+    };
+
     const neonCardMarkup = (title, subtitle, content, className = '', noPadding = false) => `
             <div class="relative flex flex-col group ${className}">
                 <div class="relative flex-1 bg-[#060b16]/90 backdrop-blur-xl flex flex-col overflow-hidden shadow-2xl rounded-sm">
@@ -414,7 +452,7 @@
                             <div class="absolute inset-0 opacity-[0.1] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
                             <div class="flex flex-col gap-0.5">
                                 ${title ? `<div class="relative z-10 flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><div class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"></div><h3 class="text-cyan-400 font-display text-xs uppercase tracking-[0.2em] font-bold glitch-text cursor-default">${title}</h3></div></div>` : ''}
-                                ${subtitle ? `<div class="flex items-center gap-2"><span class="text-[9px] font-mono text-cyan-700 tracking-widest uppercase group-hover:text-cyan-500 transition-colors">// ${subtitle}</span></div>` : ''}
+                                ${subtitle ? `<div class="flex items-center gap-2"><span ${subtitle === CONTRACT_ADDRESS ? `id="contract-address-display" data-address="${subtitle}"` : ''} class="text-[9px] font-mono text-cyan-700 tracking-widest uppercase group-hover:text-cyan-500 transition-colors">// ${subtitle}</span></div>` : ''}
                             </div>
                         </div>
                     ` : ''}
@@ -1093,6 +1131,7 @@
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${[
           ['e', 'Open command palette'],
+          ['Shift+C', 'Copy contract address'],
           ['c', 'Copy as Markdown'],
           ['n', 'Next entry point'],
           ['p', 'Previous entry point'],
@@ -1213,9 +1252,11 @@
 
     const renderLeftSidebar = () => {
       const leftAnimationClass = appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight';
+      const chainLabel = (CONTRACT_CHAIN || 'mainnet').toUpperCase();
+      const addressLabel = CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
       return `
                 <aside id="sidebar-left" class="${appState.leftCollapsed ? 'hidden' : 'w-80 shrink-0'} h-full flex flex-col ${leftAnimationClass}">
-                    ${neonCardMarkup('Modules', 'Entry Points', `
+                    ${neonCardMarkup(chainLabel, addressLabel, `
                         <div class="absolute inset-0 flex flex-col">
                             <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
                                 <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20"><i data-lucide="mouse-pointer-click" class="w-4 h-4 text-slate-400"></i></div>
@@ -1492,6 +1533,13 @@
         } else if (key === '?') {
           event.preventDefault();
           openHotkeyHelp();
+        } else if (key === 'c' && event.shiftKey) { // 'C'
+          event.preventDefault();
+          const now = Date.now();
+          if (now - lastAddressCopyAt < 1300) return;
+          lastAddressCopyAt = now;
+          copyText(CONTRACT_ADDRESS);
+          flashCopiedAddress();
         } else if (key === 'c') {
           event.preventDefault();
           const copyBtn = document.getElementById('copy-ai-markdown');
