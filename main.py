@@ -657,7 +657,15 @@ def generate_html(address: str, chain: str = DEFAULT_CHAIN, output_dir: Path | N
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2)
     inner_json = data_json[1:-1].strip() if len(data_json) > 2 else ""
+    audited_contracts = list(_iter_audited_contracts())
+    if audited_contracts:
+        title_contract = audited_contracts[0].name
+    else:
+        title_contract = f"{chain}:{address}"
+
     filled_html = template_html.replace(
+        "REPLACE_THIS_WITH_TITLE", title_contract
+    ).replace(
         "REPLACE_THIS_WITH_ENTRY_POINTS_DATA", inner_json
     ).replace(
         "REPLACE_THIS_WITH_CHAIN", chain
@@ -672,8 +680,7 @@ def generate_html(address: str, chain: str = DEFAULT_CHAIN, output_dir: Path | N
     # write_text already overwrites; avoid deleting first to preserve last-good file if generation fails mid-run.
     output_path.write_text(filled_html, encoding="utf-8")
 
-    contract_names = sorted({entry.get("contract", "")
-                             for entry in data if entry.get("contract")})
+    contract_names = sorted({entry.get("contract", "") for entry in data if entry.get("contract")})
 
     return {
         "output_path": output_path,
