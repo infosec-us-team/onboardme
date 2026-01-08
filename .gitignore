@@ -11,3 +11,4 @@ __pycache__/
 # Ignore generated artifacts in src/; only keep the entry-point HTML tracked
 src/*
 !src/index.html
+!src/favicon.svg
