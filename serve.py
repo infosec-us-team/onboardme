@@ -90,7 +90,7 @@ def run(directory: Path, host: str, port: int) -> None:
                 return
 
             address = address_list[0]
-            chain = (chain_list[0] if chain_list else "mainnet") or "mainnet"
+            chain = (chain_list[0] if chain_list else None) or None
 
             try:
                 result = flow_gen.generate_html(address, chain, output_dir=directory)
@@ -110,6 +110,14 @@ def run(directory: Path, host: str, port: int) -> None:
                         "file": filename,
                         "url": f"/{filename}",
                         "contracts": contract_names,
+                    },
+                )
+            except ValueError as exc:
+                self._json_response(
+                    400,
+                    {
+                        "error": "invalid request",
+                        "detail": str(exc),
                     },
                 )
             except Exception as exc:  # noqa: BLE001 - return error detail to client
