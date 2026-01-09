@@ -72,12 +72,86 @@ python serve.py --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/` and **type a contract address** to generate and view the dashboard.
 
+> You won't find a large text input box in the center of the screen to click; that's a design choice. Just type the chain id or name using your keyboard, then press the Paste hotkey if you have the smart contract address already copied to your clipboard. The text will be displayed on the page as you type.
+
 Input formats supported by the UI:
 
 - `0x...` (defaults to `mainnet`)
-- `chain:0x...` (example: `mainnet:0x...`)
+- `chain:0x...` (example: `mainnet:0x...` or `1:0x...`)
 
-The `chain` value uses the same network naming format that Slither accepts.
+## Supported chains
+
+You can use either the chain name or the chain id anywhere a chain is accepted
+(CLI, API, or `chain:0xaddress` input).
+
+| Chain name | Chain id |
+| --- | --- |
+| mainnet | 1 |
+| sepolia | 11155111 |
+| holesky | 17000 |
+| hoodi | 560048 |
+| bsc | 56 |
+| testnet.bsc | 97 |
+| poly | 137 |
+| amoy.poly | 80002 |
+| base | 8453 |
+| sepolia.base | 84532 |
+| arbi | 42161 |
+| nova.arbi | 42170 |
+| sepolia.arbi | 421614 |
+| linea | 59144 |
+| sepolia.linea | 59141 |
+| blast | 81457 |
+| sepolia.blast | 168587773 |
+| optim | 10 |
+| sepolia.optim | 11155420 |
+| avax | 43114 |
+| testnet.avax | 43113 |
+| bttc | 199 |
+| testnet.bttc | 1029 |
+| celo | 42220 |
+| sepolia.celo | 11142220 |
+| frax | 252 |
+| hoodi.frax | 2523 |
+| gno | 100 |
+| mantle | 5000 |
+| sepolia.mantle | 5003 |
+| memecore | 43521 |
+| moonbeam | 1284 |
+| moonriver | 1285 |
+| moonbase | 1287 |
+| opbnb | 204 |
+| testnet.opbnb | 5611 |
+| scroll | 534352 |
+| sepolia.scroll | 534351 |
+| taiko | 167000 |
+| hoodi.taiko | 167013 |
+| era.zksync | 324 |
+| sepoliaera.zksync | 300 |
+| xdc | 50 |
+| testnet.xdc | 51 |
+| apechain | 33139 |
+| curtis.apechain | 33111 |
+| world | 480 |
+| sepolia.world | 4801 |
+| sophon | 50104 |
+| testnet.sophon | 531050104 |
+| sonic | 146 |
+| testnet.sonic | 14601 |
+| unichain | 130 |
+| sepolia.unichain | 1301 |
+| abstract | 2741 |
+| sepolia.abstract | 11124 |
+| berachain | 80094 |
+| testnet.berachain | 80069 |
+| swellchain | 1923 |
+| testnet.swellchain | 1924 |
+| testnet.monad | 10143 |
+| hyperevm | 999 |
+| katana | 747474 |
+| bokuto.katana | 737373 |
+| sei | 1329 |
+| testnet.sei | 1328 |
 
 ## Generate via CLI (optional)
 
