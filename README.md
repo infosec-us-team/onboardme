@@ -2,7 +2,7 @@
 
 Below is a short user interface walkthrough, starting from the homepage, then typing `mainnet:0x..smart-contract-address` to visit a smart contract, and navigating its entry points:
 
-https://github.com/user-attachments/assets/fc6cabcb-f3c2-4335-88d0-a79dde1187a2
+<https://github.com/user-attachments/assets/fc6cabcb-f3c2-4335-88d0-a79dde1187a2>
 
 > ⚠️ This is a highly experimental tool. It may fail on some contracts, compilers, or Slither versions. Expect sharp edges.
 
@@ -16,7 +16,7 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 
 > Tip: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow.
 
-## Understand the UI
+## Understand the UI layout
 
 ### Center
 
@@ -46,7 +46,7 @@ Press `e` to fuzzy-find entry points.
 
 Press `?` for a list of shortcuts.
 
-<img src="./resources/5.png" alt="" style="width:600px; height:auto;">
+**We strongly encourage you to press "?" and read the list of shortcuts**, because **some features are hidden from the UI** and can only be triggered from a hotkey.
 
 ## Quick start (recommended UI flow)
 
