@@ -315,7 +315,7 @@
             id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex}`),
             depth: stepIndex,
             name: step.selector,
-            contractName: entry.contract || 'Unknown',
+            contractName: step.contract || entry.contract || 'Unknown',
             functionName: (step.name || `step_${stepIndex}`).split('.').slice(1).join('.'),
             signature: step.name || '',
             type: stepIndex === 0 ? 'entry-point' : 'internal',
