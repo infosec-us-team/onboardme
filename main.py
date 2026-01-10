@@ -587,6 +587,9 @@ def _walk_callable(
             "source": _source_text(item),
             "selector": _function_selector(item),
             "cyclomatic_complexity": compute_cyclomatic_complexity(item) if hasattr(item, "nodes") else 1,
+            "contract": getattr(getattr(item, "contract_declarer", None), "name", None)
+            or getattr(getattr(item, "contract", None), "name", None)
+            or "Unknown",
         }
     )
     callable_index[name] = item
