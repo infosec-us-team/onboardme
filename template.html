@@ -259,6 +259,78 @@
     // --- DATA LOADING ---
     const CONTRACT_CHAIN = 'REPLACE_THIS_WITH_CHAIN';
     const CONTRACT_ADDRESS = 'REPLACE_THIS_WITH_ADDRESS';
+    const EXPLORER_BY_CHAIN = {
+      mainnet: {id: '1', host: 'etherscan.io'},
+      sepolia: {id: '11155111', host: 'sepolia.etherscan.io'},
+      holesky: {id: '17000', host: 'holesky.etherscan.io'},
+      hoodi: {id: '560048', host: 'hoodi.etherscan.io'},
+      bsc: {id: '56', host: 'bscscan.com'},
+      'testnet.bsc': {id: '97', host: 'testnet.bscscan.com'},
+      poly: {id: '137', host: 'polygonscan.com'},
+      'amoy.poly': {id: '80002', host: 'amoy.polygonscan.com'},
+      base: {id: '8453', host: 'basescan.org'},
+      'sepolia.base': {id: '84532', host: 'sepolia.basescan.org'},
+      arbi: {id: '42161', host: 'arbiscan.io'},
+      'nova.arbi': {id: '42170', host: 'nova.arbiscan.io'},
+      'sepolia.arbi': {id: '421614', host: 'sepolia.arbiscan.io'},
+      linea: {id: '59144', host: 'lineascan.build'},
+      'sepolia.linea': {id: '59141', host: 'sepolia.lineascan.build'},
+      blast: {id: '81457', host: 'blastscan.io'},
+      'sepolia.blast': {id: '168587773', host: 'sepolia.blastscan.io'},
+      optim: {id: '10', host: 'optimistic.etherscan.io'},
+      'sepolia.optim': {id: '11155420', host: 'sepolia-optimism.etherscan.io'},
+      avax: {id: '43114', host: 'snowscan.xyz'},
+      'testnet.avax': {id: '43113', host: 'testnet.snowscan.xyz'},
+      bttc: {id: '199', host: 'bttcscan.com'},
+      'testnet.bttc': {id: '1029', host: 'testnet.bttcscan.com'},
+      celo: {id: '42220', host: 'celoscan.io'},
+      'sepolia.celo': {id: '11142220', host: 'sepolia.celoscan.io'},
+      frax: {id: '252', host: 'fraxscan.com'},
+      'hoodi.frax': {id: '2523', host: 'hoodi.fraxscan.com'},
+      gno: {id: '100', host: 'gnosisscan.io'},
+      mantle: {id: '5000', host: 'mantlescan.xyz'},
+      'sepolia.mantle': {id: '5003', host: 'sepolia.mantlescan.xyz'},
+      memecore: {id: '43521', host: 'testnet.memecorescan.io'},
+      moonbeam: {id: '1284', host: 'moonbeam.moonscan.io'},
+      moonriver: {id: '1285', host: 'moonriver.moonscan.io'},
+      moonbase: {id: '1287', host: 'moonbase.moonscan.io'},
+      opbnb: {id: '204', host: 'opbnb.bscscan.com'},
+      'testnet.opbnb': {id: '5611', host: 'opbnb-testnet.bscscan.com'},
+      scroll: {id: '534352', host: 'scrollscan.com'},
+      'sepolia.scroll': {id: '534351', host: 'sepolia.scrollscan.com'},
+      taiko: {id: '167000', host: 'taikoscan.io'},
+      'hoodi.taiko': {id: '167013', host: 'hoodi.taikoscan.io'},
+      'era.zksync': {id: '324', host: 'era.zksync.network'},
+      'sepoliaera.zksync': {id: '300', host: 'sepolia-era.zksync.network'},
+      xdc: {id: '50', host: 'xdcscan.com'},
+      'testnet.xdc': {id: '51', host: 'testnet.xdcscan.com'},
+      apechain: {id: '33139', host: 'apescan.io'},
+      'curtis.apechain': {id: '33111', host: 'curtis.apescan.io'},
+      world: {id: '480', host: 'worldscan.org'},
+      'sepolia.world': {id: '4801', host: 'sepolia.worldscan.org'},
+      sophon: {id: '50104', host: 'sophscan.xyz'},
+      'testnet.sophon': {id: '531050104', host: 'testnet.sophscan.xyz'},
+      sonic: {id: '146', host: 'sonicscan.org'},
+      'testnet.sonic': {id: '14601', host: 'testnet.sonicscan.org'},
+      unichain: {id: '130', host: 'uniscan.xyz'},
+      'sepolia.unichain': {id: '1301', host: 'sepolia.uniscan.xyz'},
+      abstract: {id: '2741', host: 'abscan.org'},
+      'sepolia.abstract': {id: '11124', host: 'sepolia.abscan.org'},
+      berachain: {id: '80094', host: 'berascan.com'},
+      'testnet.berachain': {id: '80069', host: 'testnet.berascan.com'},
+      swellchain: {id: '1923', host: 'swellchainscan.io'},
+      'testnet.swellchain': {id: '1924', host: 'sepolia.swellchainscan.io'},
+      'testnet.monad': {id: '10143', host: 'testnet.monadscan.com'},
+      hyperevm: {id: '999', host: 'hyperevmscan.io'},
+      katana: {id: '747474', host: 'katanascan.com'},
+      'bokuto.katana': {id: '737373', host: 'bokuto.katanascan.com'},
+      sei: {id: '1329', host: 'seiscan.io'},
+      'testnet.sei': {id: '1328', host: 'testnet.seiscan.io'}
+    };
+    const EXPLORER_HOST_BY_CHAIN_ID = Object.values(EXPLORER_BY_CHAIN).reduce((acc, entry) => {
+      acc[entry.id] = entry.host;
+      return acc;
+    }, {});
     const ENTRY_POINTS_DATA = [
       REPLACE_THIS_WITH_ENTRY_POINTS_DATA
     ];
@@ -425,6 +497,23 @@
       addressCopyTimeout = setTimeout(() => {
         el.textContent = `// ${original}`;
       }, 1200);
+    };
+
+    const resolveExplorerHost = () => {
+      const raw = (CONTRACT_CHAIN || '').toString().trim();
+      if (!raw) return EXPLORER_BY_CHAIN.mainnet.host;
+      const normalized = raw.toLowerCase();
+      if (EXPLORER_BY_CHAIN[normalized]) return EXPLORER_BY_CHAIN[normalized].host;
+      if (EXPLORER_HOST_BY_CHAIN_ID[normalized]) return EXPLORER_HOST_BY_CHAIN_ID[normalized];
+      return EXPLORER_BY_CHAIN.mainnet.host;
+    };
+
+    const openExplorerForAddress = () => {
+      if (!CONTRACT_ADDRESS) return;
+      const host = resolveExplorerHost();
+      if (!host) return;
+      const url = `https://${host}/address/${CONTRACT_ADDRESS}`;
+      window.open(url, '_blank', 'noopener');
     };
 
     const neonCardMarkup = (title, subtitle, content, className = '', noPadding = false) => `
@@ -1130,7 +1219,8 @@
             <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${[
-          ['e', 'Open command palette'],
+          ['x', 'Open in block explorer'],
+          ['e', 'Search entry point'],
           ['Shift+C', 'Copy contract address'],
           ['c', 'Copy as Markdown'],
           ['n', 'Next entry point'],
@@ -1540,6 +1630,9 @@
           lastAddressCopyAt = now;
           copyText(CONTRACT_ADDRESS);
           flashCopiedAddress();
+        } else if (key === 'x') {
+          event.preventDefault();
+          openExplorerForAddress();
         } else if (key === 'c') {
           event.preventDefault();
           const copyBtn = document.getElementById('copy-ai-markdown');
