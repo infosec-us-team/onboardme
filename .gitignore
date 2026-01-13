@@ -12,3 +12,4 @@ __pycache__/
 src/*
 !src/index.html
 !src/favicon.svg
+!src/hotkeys.json
