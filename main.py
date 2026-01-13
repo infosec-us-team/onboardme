@@ -616,8 +616,6 @@ def _walk_callable(
 
     name = _display_name(item)
 
-    # if name == "IAToken.DOMAIN_SEPARATOR()":
-
     if name in visited:
         return
 
