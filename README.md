@@ -12,11 +12,11 @@ Jumping between files and tabs isn’t a great way to study an entry point in a 
 
 Ideally, you want one scrollable view showing every internal function and state variable the entry point touches.
 
-OnboardMe gives you that. Press n to jump to the next entry point (no matter where it’s defined) while keeping the entire flow in view.
+OnboardMe gives you that. By default, press j to jump to the next entry point (no matter where it’s defined) while keeping the entire flow in view.
 
 It doesn’t replace your IDE; it’s just the fastest way to understand all possible execution paths, so you can dive deeper with your IDE when needed.
 
-> **Tip**: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow and most features can only be triggered from a shortcut.
+> **Tip**: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow and most features can only be triggered from a shortcut. Shortcuts are configurable in `src/hotkeys.json`.
 
 ## Understand the UI layout
 
@@ -38,7 +38,7 @@ Pressing `w` toggles a data dependency panel that lets you list all possible way
 
 ### Left
 
-Pressing `l` toggles the visibility of the left panel, which contains every entry point. You can switch between entry points by clicking on them or by pressing `n`/`p` for next and previous.
+Pressing `l` toggles the visibility of the left panel, which contains every entry point. By default, you can switch between entry points by clicking on them or by pressing `j`/`k` for next and previous.
 
 <img src="./resources/3.png" alt="" style="width:600px; height:auto;">
 
@@ -50,7 +50,27 @@ Press `e` to fuzzy-find entry points.
 
 ### Shortcuts
 
-Press `?` for a list of shortcuts.
+Press `?` for a list of shortcuts (configurable via `src/hotkeys.json`).
+
+### Hotkeys configuration
+
+Edit `src/hotkeys.json` to customize shortcuts and the help popup. Each action maps to one or more key combos.
+
+```json
+{
+  "actions": {
+    "nextEntry": ["j"],
+    "prevEntry": ["k"],
+    "toggleAuditFilter": ["h"]
+  },
+  "help": [
+    {"action": "nextEntry", "label": "Next entry point"},
+    {"action": "prevEntry", "label": "Previous entry point"}
+  ]
+}
+```
+
+> There are many more hotkeys in src/hotkey.json
 
 **We strongly encourage you to press "?" and read the list of shortcuts**, because **some features are hidden from the UI** and can only be triggered from a hotkey.
 
@@ -198,7 +218,7 @@ Response:
 ├─ main.py         # CLI generator for a single contract HTML
 ├─ serve.py        # HTTP server + /generate API
 ├─ template.html   # UI template with embedded flow data
-└─ src/            # UI entrypoint (index.html) + generated dashboards + registry.json
+└─ src/            # UI entrypoint (index.html) + generated dashboards + registry.json + hotkeys.json
 ```
 
 ## Contributing

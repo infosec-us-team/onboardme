@@ -193,6 +193,39 @@
     .token-regex {
       color: #f472b6;
     }
+
+    .audit-toggle {
+      width: 18px;
+      height: 18px;
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      background: rgba(6, 12, 22, 0.75);
+      box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.18);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .audit-toggle:hover {
+      border-color: rgba(34, 211, 238, 0.7);
+      box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.3), 0 0 6px rgba(6, 182, 212, 0.2);
+    }
+
+    .audit-toggle svg {
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .audit-toggle.is-active {
+      display: inline-flex;
+      border-color: rgb(22 78 99 / 0.4);
+      background: rgba(6, 182, 212, 0.18);
+      box-shadow: inset 0 0 1px rgba(6, 182, 212, 0.35), 0 0 45px rgba(6, 182, 212, 0.35);
+    }
+
+    .audit-toggle.is-active svg {
+      opacity: 1;
+    }
   </style>
 </head>
 
@@ -314,6 +347,8 @@
     let outroOverlay = null;
     let addressCopyTimeout = null;
     let lastAddressCopyAt = 0;
+    let hotkeyConfig = {actions: {}, help: []};
+    let hotkeyBindings = new Map();
 
     const normalizeId = (text, suffix = '') => {
       const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -385,6 +420,7 @@
     const CODE_FONT_DEFAULT = 10;
     const CODE_FONT_MIN = 8;
     const CODE_FONT_MAX = 24;
+    const AUDIT_STORAGE_KEY = 'auditedEntryPoints';
 
     let appState = {
       activeFunctionId: null,
@@ -402,7 +438,65 @@
         selectedVar: null
       },
       hotkeysOpen: false,
+      showAudited: true,
       codeFontSize: CODE_FONT_DEFAULT
+    };
+
+    let auditedFunctionIds = new Set();
+
+    const loadAuditMarks = () => {
+      try {
+        const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          auditedFunctionIds = new Set(parsed.filter(Boolean));
+        }
+      } catch (_) {
+        auditedFunctionIds = new Set();
+      }
+    };
+
+    const persistAuditMarks = () => {
+      try {
+        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify([...auditedFunctionIds]));
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const updateAuditMarksUI = () => {
+      document.querySelectorAll('[data-audit-id]').forEach((el) => {
+        const id = el.getAttribute('data-audit-id');
+        const isAudited = Boolean(id && auditedFunctionIds.has(id));
+        el.classList.toggle('is-active', isAudited);
+        el.setAttribute('aria-checked', isAudited ? 'true' : 'false');
+        el.setAttribute('aria-hidden', isAudited ? 'false' : 'true');
+      });
+    };
+
+    const toggleAudit = (id, {persist = true} = {}) => {
+      if (!id) return;
+      if (auditedFunctionIds.has(id)) {
+        auditedFunctionIds.delete(id);
+      } else {
+        auditedFunctionIds.add(id);
+      }
+      if (persist) persistAuditMarks();
+      if (!appState.showAudited) {
+        appState.lastAction = 'audit-mark';
+        refreshLeftSidebar();
+        updateSidebarSelection();
+      } else {
+        updateAuditMarksUI();
+      }
+    };
+
+    const toggleAuditMark = (id, event) => {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      toggleAudit(id);
     };
 
     const setCodeFontSize = (size, {persist = true} = {}) => {
@@ -492,6 +586,95 @@
       if (EXPLORER_BY_CHAIN[normalized]) return EXPLORER_BY_CHAIN[normalized].host;
       if (EXPLORER_HOST_BY_CHAIN_ID[normalized]) return EXPLORER_HOST_BY_CHAIN_ID[normalized];
       return EXPLORER_BY_CHAIN.mainnet.host;
+    };
+
+    const normalizeCombo = (combo) => (combo || '').toString().trim().toLowerCase().replace(/\s+/g, '');
+
+    const buildHotkeyBindings = () => {
+      hotkeyBindings = new Map();
+      const actions = hotkeyConfig?.actions || {};
+      Object.entries(actions).forEach(([action, combos]) => {
+        const normalized = new Set();
+        if (Array.isArray(combos)) {
+          combos.forEach((combo) => {
+            const key = normalizeCombo(combo);
+            if (key) normalized.add(key);
+          });
+        } else if (typeof combos === 'string') {
+          const key = normalizeCombo(combos);
+          if (key) normalized.add(key);
+        }
+        if (normalized.size) {
+          hotkeyBindings.set(action, normalized);
+        }
+      });
+    };
+
+    const loadHotkeyConfig = async () => {
+      try {
+        const res = await fetch('./hotkeys.json', {cache: 'no-store'});
+        if (!res.ok) throw new Error('hotkeys.json not found');
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          hotkeyConfig = data;
+        }
+      } catch (_) {
+        hotkeyConfig = {actions: {}, help: []};
+      }
+      buildHotkeyBindings();
+      if (hotkeyHelpEl) {
+        hotkeyHelpEl.remove();
+        hotkeyHelpEl = null;
+      }
+    };
+
+    const getActionCombos = (action) => {
+      const combos = hotkeyConfig?.actions?.[action];
+      if (Array.isArray(combos)) return combos.map(normalizeCombo).filter(Boolean);
+      if (typeof combos === 'string') {
+        const normalized = normalizeCombo(combos);
+        return normalized ? [normalized] : [];
+      }
+      return [];
+    };
+
+    const formatComboLabel = (combo) => {
+      if (!combo) return '';
+      if (combo === '?') return '?';
+      const prettyMap = {
+        backspace: 'Backspace',
+        escape: 'Esc',
+        enter: 'Enter',
+        arrowdown: 'ArrowDown',
+        arrowup: 'ArrowUp'
+      };
+      const parts = combo.split('+').filter(Boolean);
+      const pretty = parts.map((part) => {
+        if (prettyMap[part]) return prettyMap[part];
+        if (part.length === 1) return part.toUpperCase();
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      });
+      return pretty.join('+');
+    };
+
+    const formatComboList = (combos) => {
+      if (!combos || !combos.length) return '';
+      return combos.map(formatComboLabel).join(' / ');
+    };
+
+    const eventToCombo = (event) => {
+      if (!event?.key) return '';
+      const key = event.key.toLowerCase();
+      if (event.shiftKey && /^[a-z]$/.test(key)) {
+        return `shift+${key}`;
+      }
+      return key;
+    };
+
+    const matchesAction = (event, action) => {
+      const combos = hotkeyBindings.get(action);
+      if (!combos || !combos.size) return false;
+      return combos.has(eventToCombo(event));
     };
 
     const openExplorerForAddress = () => {
@@ -1376,31 +1559,22 @@
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
             <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
-                ${[
-          ['x', 'Open in block explorer'],
-          ['e', 'Search entry point'],
-          ['Shift+C', 'Copy contract address'],
-          ['c', 'Copy as Markdown'],
-          ['n', 'Next entry point'],
-          ['p', 'Previous entry point'],
-          ['l', 'Toggle entry points'],
-          ['r', 'Toggle sload / sstore'],
-          ['w', 'Open storage writers panel'],
-          ['d / u', 'Scroll down / up'],
-          ['+ / -', 'Increase / decrease code font'],
-          ['g', 'Jump to top'],
-          ['Shift+g', 'Jump to bottom'],
-          ['h / Backspace', 'Return to home'],
-          ['?', 'Show this help'],
-          ['Enter / Esc', 'Select / close'],
-        ].map(([k, desc]) => `
+                ${(Array.isArray(hotkeyConfig?.help) ? hotkeyConfig.help : []).map((entry) => {
+                  const label = entry?.label || '';
+                  const keys = Array.isArray(entry?.keys)
+                    ? entry.keys.map(normalizeCombo).filter(Boolean)
+                    : (entry?.action ? getActionCombos(entry.action) : []);
+                  const display = formatComboList(keys);
+                  if (!label || !display) return '';
+                  return `
                   <div class="flex items-center justify-between px-3 py-2 border border-cyan-900/50 bg-cyan-950/20 rounded-sm shadow-[0_0_10px_rgba(6,182,212,0.08)]">
                     <div class="flex items-center gap-2">
-                      <span class="px-2 py-1 border border-cyan-800/60 rounded-sm bg-cyan-900/30 font-display text-[10px] tracking-wide font-bold uppercase text-cyan-100 text-glow">${k}</span>
+                      <span class="px-2 py-1 border border-cyan-800/60 rounded-sm bg-cyan-900/30 font-display text-[10px] tracking-wide font-bold uppercase text-cyan-100 text-glow">${display}</span>
                     </div>
-                    <span class="text-[9px] font-mono text-cyan-200 uppercase tracking-widest">${desc}</span>
+                    <span class="text-[9px] font-mono text-cyan-200 uppercase tracking-widest">${label}</span>
                   </div>
-                `).join('')}
+                `;
+                }).join('')}
               </div>
             </div>
           </div>
@@ -1496,6 +1670,13 @@
       hotkeyHelpEl.classList.add('hidden');
     };
 
+    const toggleAuditFilter = () => {
+      appState.showAudited = !appState.showAudited;
+      appState.lastAction = 'toggle-audit-filter';
+      refreshLeftSidebar();
+      updateSidebarSelection();
+    };
+
     const activateSearchSelection = () => {
       const targetFn = appState.search.results[appState.search.selectedIndex];
       if (targetFn) {
@@ -1505,34 +1686,46 @@
     };
 
     const renderLeftSidebar = () => {
-      const leftAnimationClass = appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight';
+      const leftAnimationClass = (appState.lastAction === 'toggle-audit-filter' || appState.lastAction === 'audit-mark')
+        ? ''
+        : (appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight');
       const chainLabel = (CONTRACT_CHAIN || 'mainnet').toUpperCase();
       const addressLabel = CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
+      const filteredFunctions = appState.showAudited
+        ? functionList
+        : functionList.filter((fn) => !auditedFunctionIds.has(fn.id));
       return `
                 <aside id="sidebar-left" class="${appState.leftCollapsed ? 'hidden' : 'w-80 shrink-0'} h-full flex flex-col ${leftAnimationClass}">
                     ${neonCardMarkup(chainLabel, addressLabel, `
                         <div class="absolute inset-0 flex flex-col">
                             <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
                                 <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('mouse-pointer-click', 'w-4 h-4 text-slate-400')}</div>
-                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Entry Points</span><span class="text-[9px] text-cyan-700 font-mono">${functionList.length} FUNCTIONS LOADED</span></div>
+                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Entry Points</span><span class="text-[9px] text-cyan-700 font-mono">${functionList.length} FUNCTIONS LOADED${appState.showAudited ? '' : ` · ${functionList.length - filteredFunctions.length} HIDDEN`}</span></div>
                             </div>
                             <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                                ${functionList.map((fn) => `
-                                    <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 flex items-center justify-between ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+                                ${filteredFunctions.map((fn) => `
+                                    <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 flex items-center justify-between gap-3 ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
                                         <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
-                                        <div class="relative z-10 flex items-center gap-3">
+                                        <div class="relative z-10 flex items-center gap-3 min-w-0">
                                             <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${appState.activeFunctionId === fn.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
                                                 ${fn.type === 'write'
                                                   ? iconSvg('zap', 'w-3 h-3')
                                                   : iconSvg('hexagon', 'w-3 h-3')}
                                             </div>
-                                            <div class="flex flex-col">
+                                            <div class="flex flex-col min-w-0">
                                                 <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
                                                 <span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${fn.signature}</span>
                                             </div>
                                         </div>
+                                        <div class="relative z-10 flex items-center">
+                                          <div data-audit-id="${fn.id}" role="checkbox" aria-checked="${auditedFunctionIds.has(fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFunctionIds.has(fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.id}', event)" class="audit-toggle rounded-sm ${auditedFunctionIds.has(fn.id) ? 'is-active' : ''}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                              <path d="M20 6 9 17l-5-5"></path>
+                                            </svg>
+                                          </div>
+                                        </div>
                                     </button>
-                                `).join('')}
+                                `).join('') || `<div class="px-3 py-6 text-center text-[10px] font-mono text-slate-600 uppercase tracking-widest">No unaudited entry points.</div>`}
                             </div>
                             <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
                                   <div class="flex space-x-1"><div class="w-1.5 h-1.5 bg-cyan-400 rounded-sm animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></div><div class="w-1.5 h-1.5 bg-cyan-900/50 rounded-sm"></div><div class="w-1.5 h-1.5 bg-cyan-900/30 rounded-sm"></div></div>
@@ -1624,6 +1817,13 @@
       applySidebarVisibility();
     };
 
+    const refreshLeftSidebar = () => {
+      const leftEl = document.getElementById('sidebar-left');
+      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
+      applySidebarVisibility();
+      updateAuditMarksUI();
+    };
+
     // --- MAIN RENDER LOOP ---
     const renderApp = () => {
       const container = document.getElementById('app-container');
@@ -1669,6 +1869,7 @@
         attachStoragePanelHandlers();
       }
       applySidebarVisibility();
+      updateAuditMarksUI();
 
       // Init Typing Effects
       document.querySelectorAll('.typing-text').forEach(el => {
@@ -1689,9 +1890,11 @@
     };
 
     // Init
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
       outroOverlay = document.getElementById('outro-overlay');
       loadCodeFontSize();
+      loadAuditMarks();
+      await loadHotkeyConfig();
       const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
       functionList = hydrated.functions;
       callGraphs = hydrated.callGraphs;
@@ -1705,7 +1908,6 @@
 
       ensureSearchPalette();
       document.addEventListener('keydown', (event) => {
-        const key = event.key?.toLowerCase();
         const target = event.target;
         const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
         const isPaletteInput = searchPaletteEl && searchPaletteEl.contains(target);
@@ -1713,18 +1915,18 @@
 
         // When palette is open, only palette controls are active
         if (appState.search.open) {
-          if (key === 'escape') {
+          if (matchesAction(event, 'searchClose')) {
             event.preventDefault();
             closeSearchPalette();
-          } else if (key === 'enter') {
+          } else if (matchesAction(event, 'searchSelect')) {
             event.preventDefault();
             activateSearchSelection();
-          } else if (key === 'arrowdown') {
+          } else if (matchesAction(event, 'searchDown')) {
             event.preventDefault();
             const max = appState.search.results.length;
             if (max) appState.search.selectedIndex = (appState.search.selectedIndex + 1) % max;
             updateSearchHighlight();
-          } else if (key === 'arrowup') {
+          } else if (matchesAction(event, 'searchUp')) {
             event.preventDefault();
             const max = appState.search.results.length;
             if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
@@ -1735,7 +1937,7 @@
 
         // When hotkey help is open, only allow closing
         if (appState.hotkeysOpen) {
-          if (key === 'escape' || key === '?') {
+          if (matchesAction(event, 'closeHotkeys')) {
             event.preventDefault();
             closeHotkeyHelp();
           }
@@ -1743,12 +1945,12 @@
         }
 
         if (appState.storagePanelOpen) {
-          if (key === 'w' && !isTyping) {
+          if (matchesAction(event, 'toggleStorage') && !isTyping) {
             event.preventDefault();
             toggleStoragePanel();
             return;
           }
-          if (key === 'r') {
+          if (matchesAction(event, 'toggleRight')) {
             event.preventDefault();
             closeStoragePanel({refresh: false});
             appState.rightCollapsed = false;
@@ -1759,7 +1961,7 @@
           }
         }
 
-        if (key === 'h' || key === 'backspace') {
+        if (matchesAction(event, 'goHome')) {
           event.preventDefault();
           startOutroRedirect('/index.html');
           return;
@@ -1767,56 +1969,64 @@
 
         if (isTyping) return;
 
-        if (key === 'l') {
+        if (matchesAction(event, 'toggleAuditFilter')) {
+          event.preventDefault();
+          toggleAuditFilter();
+        } else if (matchesAction(event, 'toggleLeft')) {
           event.preventDefault();
           toggleSidebar('left');
-        } else if (key === 'r') {
+        } else if (matchesAction(event, 'toggleRight')) {
           event.preventDefault();
           toggleSidebar('right');
-        } else if (key === 'd') {
+        } else if (matchesAction(event, 'scrollDown')) {
           event.preventDefault();
           scrollMain(260);
-        } else if (key === 'u') {
+        } else if (matchesAction(event, 'scrollUp')) {
           event.preventDefault();
           scrollMain(-260);
-        } else if (key === '+') {
+        } else if (matchesAction(event, 'fontIncrease')) {
           event.preventDefault();
           adjustCodeFontSize(1);
-        } else if (key === '-') {
+        } else if (matchesAction(event, 'fontDecrease')) {
           event.preventDefault();
           adjustCodeFontSize(-1);
-        } else if (key === 'g' && event.shiftKey) { // 'G'
+        } else if (matchesAction(event, 'jumpBottom')) {
           event.preventDefault();
           scrollMainTo(Number.MAX_SAFE_INTEGER);
-        } else if (key === 'g') {
+        } else if (matchesAction(event, 'jumpTop')) {
           event.preventDefault();
           scrollMainTo(0);
-        } else if (key === 'e') {
+        } else if (matchesAction(event, 'openSearch')) {
           event.preventDefault();
           openSearchPalette();
-        } else if (key === 'n') {
+        } else if (matchesAction(event, 'nextEntry')) {
           event.preventDefault();
           stepFunctionSelection(1);
-        } else if (key === 'p') {
+        } else if (matchesAction(event, 'prevEntry')) {
           event.preventDefault();
           stepFunctionSelection(-1);
-        } else if (key === 'w') {
+        } else if (matchesAction(event, 'toggleStorage')) {
           event.preventDefault();
           toggleStoragePanel();
-        } else if (key === '?') {
+        } else if (matchesAction(event, 'toggleAuditMark')) {
+          event.preventDefault();
+          if (appState.activeFunctionId) {
+            toggleAudit(appState.activeFunctionId);
+          }
+        } else if (matchesAction(event, 'openHotkeys')) {
           event.preventDefault();
           openHotkeyHelp();
-        } else if (key === 'c' && event.shiftKey) { // 'C'
+        } else if (matchesAction(event, 'copyAddress')) {
           event.preventDefault();
           const now = Date.now();
           if (now - lastAddressCopyAt < 1300) return;
           lastAddressCopyAt = now;
           copyText(CONTRACT_ADDRESS);
           flashCopiedAddress();
-        } else if (key === 'x') {
+        } else if (matchesAction(event, 'openExplorer')) {
           event.preventDefault();
           openExplorerForAddress();
-        } else if (key === 'c') {
+        } else if (matchesAction(event, 'copyMarkdown')) {
           event.preventDefault();
           copyMarkdownReport();
         }

@@ -882,6 +882,10 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
 
     output_dir = output_dir or Path("src")
     output_dir.mkdir(parents=True, exist_ok=True)
+    hotkeys_src = Path(__file__).parent / "src" / "hotkeys.json"
+    hotkeys_dst = output_dir / "hotkeys.json"
+    if hotkeys_src.exists() and not hotkeys_dst.exists():
+        hotkeys_dst.write_text(hotkeys_src.read_text(encoding="utf-8"), encoding="utf-8")
     output_path = output_dir / f"{chain}_{address}.html"
     # Always rebuild the dashboard so template changes propagate immediately.
     # write_text already overwrites; avoid deleting first to preserve last-good file if generation fails mid-run.
