@@ -7,7 +7,6 @@
   <title>REPLACE_THIS_WITH_TITLE</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -44,28 +43,6 @@
 
     /* --- GLOBAL FX --- */
 
-    .scanlines {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: linear-gradient(to bottom,
-          rgba(255, 255, 255, 0),
-          rgba(255, 255, 255, 0) 50%,
-          rgba(0, 0, 0, 0.3) 50%,
-          rgba(0, 0, 0, 0.3));
-      background-size: 100% 4px;
-      pointer-events: none;
-      z-index: 50;
-      opacity: 0.6;
-    }
-
-    .vignette {
-      position: fixed;
-      inset: 0;
-      background: radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.12) 100%);
-      pointer-events: none;
-      z-index: 52;
-    }
 
     .custom-scrollbar::-webkit-scrollbar {
       width: 6px;
@@ -103,9 +80,6 @@
       }
     }
 
-    .animate-pulse-glow {
-      animation: pulse-glow 2s infinite;
-    }
 
     @keyframes slideRight {
       from {
@@ -220,16 +194,6 @@
       color: #f472b6;
     }
   </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "react": "https://aistudiocdn.com/react@^19.2.1"
-  }
-}
-</script>
 </head>
 
 <body>
@@ -334,10 +298,15 @@
     const ENTRY_POINTS_DATA = [
       REPLACE_THIS_WITH_ENTRY_POINTS_DATA
     ];
+    const STORAGE_VARIABLES = [
+      REPLACE_THIS_WITH_STORAGE_VARIABLES
+    ];
+    const STORAGE_WRITERS_INDEX = REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX;
     let functionList = [];
     let callGraphs = {};
     let stateReadsByFunction = {};
     let stateWritesByFunction = {};
+    let functionBySignature = {};
 
     let deviceGuardEl = null;
     let searchPaletteEl = null;
@@ -420,13 +389,17 @@
     let appState = {
       activeFunctionId: null,
       leftCollapsed: false,
-      rightCollapsed: false,
+      rightCollapsed: true,
       lastAction: 'init',
       search: {
         open: false,
         query: '',
         selectedIndex: 0,
         results: []
+      },
+      storagePanelOpen: false,
+      storageSearch: {
+        selectedVar: null
       },
       hotkeysOpen: false,
       codeFontSize: CODE_FONT_DEFAULT
@@ -488,7 +461,20 @@
       document.body.removeChild(textarea);
     };
 
+    const flashCopyFeedback = (message) => {
+      const labelEl = document.getElementById('copy-feedback');
+      if (!labelEl) return false;
+      const original = labelEl.getAttribute('data-copy-label') || labelEl.textContent || '';
+      labelEl.textContent = message;
+      if (addressCopyTimeout) clearTimeout(addressCopyTimeout);
+      addressCopyTimeout = setTimeout(() => {
+        labelEl.textContent = original;
+      }, 1200);
+      return true;
+    };
+
     const flashCopiedAddress = () => {
+      if (flashCopyFeedback('copied!')) return;
       const el = document.getElementById('contract-address-display');
       if (!el) return;
       const original = el.getAttribute('data-address') || CONTRACT_ADDRESS;
@@ -788,11 +774,39 @@
         </div>
     `;
 
+    const iconSvg = (name, className = '') => {
+      const cls = className ? ` class="${className}"` : '';
+      switch (name) {
+        case 'layers':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>`;
+        case 'radical':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M3 12h3.28a1 1 0 0 1 .948.684l2.298 7.934a.5.5 0 0 0 .96-.044L13.82 4.771A1 1 0 0 1 14.792 4H21"/></svg>`;
+        case 'monitor-smartphone':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg>`;
+        case 'database':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>`;
+        case 'variable':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M8 21s-4-3-4-9 4-9 4-9"/><path d="M16 3s4 3 4 9-4 9-4 9"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>`;
+        case 'hard-drive':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>`;
+        case 'mouse-pointer-click':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M14 4.1 12 6"/><path d="m5.1 8-2.9-.8"/><path d="m6 12-1.9 2"/><path d="M7.2 2.2 8 5.1"/><path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z"/></svg>`;
+        case 'hexagon':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>`;
+        case 'zap':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>`;
+        case 'box':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`;
+        default:
+          return '';
+      }
+    };
+
     const renderStorageSection = (items = [], emptyIcon, emptyText) => {
       if (!items.length) {
         return `
             <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
-                <i data-lucide="${emptyIcon}" class="w-4 h-4 text-slate-500"></i>
+                ${iconSvg(emptyIcon, 'w-4 h-4 text-slate-500')}
                 <span>${emptyText}</span>
             </div>
         `;
@@ -848,32 +862,17 @@
       return mdLines.join('\n');
     };
 
-    const attachAIAssistantHandler = () => {
-      const btn = document.getElementById('copy-ai-markdown');
-      if (!btn) return;
-      const label = btn.querySelector('[data-copy-label]');
-      btn.onclick = async () => {
-        if (!appState.activeFunctionId) return;
-        const originalLabel = label ? label.textContent : btn.textContent;
-        btn.disabled = true;
-        if (label) label.textContent = 'Copying...';
-        try {
-          const md = buildMarkdownReport(appState.activeFunctionId);
-          await navigator.clipboard.writeText(md);
-          if (label) label.textContent = 'Copied!';
-        } catch (err) {
-          if (label) label.textContent = 'Copy failed';
-          console.error('Clipboard copy failed', err);
-        } finally {
-          setTimeout(() => {
-            const latestBtn = document.getElementById('copy-ai-markdown');
-            if (!latestBtn) return;
-            const latestLabel = latestBtn.querySelector('[data-copy-label]');
-            if (latestLabel) latestLabel.textContent = originalLabel || 'Copy As Markdown';
-            latestBtn.disabled = false;
-          }, 1200);
-        }
-      };
+    const copyMarkdownReport = async () => {
+      if (!appState.activeFunctionId) return;
+      flashCopyFeedback('copying...');
+      try {
+        const md = buildMarkdownReport(appState.activeFunctionId);
+        await navigator.clipboard.writeText(md);
+        flashCopyFeedback('copied!');
+      } catch (err) {
+        flashCopyFeedback('copy failed');
+        console.error('Clipboard copy failed', err);
+      }
     };
 
     const renderStorageReads = (reads = []) => renderStorageSection(
@@ -896,16 +895,18 @@
                 <div class="bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between">
                     <div class="flex items-center gap-4">
                         <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
-                            <i data-lucide="${node.type === 'entry-point' ? 'zap' : 'layers'}" class="w-5 h-5 ${node.type === 'entry-point' ? 'text-cyan-400' : 'text-cyan-900'}"></i>
+                            ${node.type === 'entry-point'
+                              ? iconSvg('zap', 'w-5 h-5 text-cyan-400')
+                              : iconSvg('layers', 'w-5 h-5 text-cyan-900')}
                         </div>
                         <div>
                             <div class="flex items-center gap-2">
                                 <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${node.name.length > 50 ? node.name.slice(0, 50) + '...' : node.name}"></h3>
                             </div>
                             <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
-                                <i data-lucide="box" class="w-3 h-3 text-cyan-600"></i>
+                                ${iconSvg('box', 'w-3 h-3 text-cyan-600')}
                                 <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${node.contractName}.sol</span>
-                                <i data-lucide="radical" class="w-3 h-3 text-purple-400 animate-pulse"></i>
+                                ${iconSvg('radical', 'w-3 h-3 text-purple-400 animate-pulse')}
                                 <div class="text-purple-400 font-mono flex items-center font-bold mt-[1px]">COMPLEXITY LVL. ${node.complexity} </div>
                             </div>
                         </div>
@@ -942,7 +943,14 @@
       }
       appState.activeFunctionId = id;
       appState.lastAction = 'select-function';
-      renderApp();
+      refreshMainFlow();
+      if (!appState.storagePanelOpen && !appState.rightCollapsed) {
+        refreshRightSidebar();
+      }
+      if (appState.storagePanelOpen) {
+        updateStorageWriters();
+      }
+      updateSidebarSelection();
       scrollActiveFunctionIntoView();
     };
 
@@ -959,7 +967,14 @@
       if (target) {
         appState.activeFunctionId = target.id;
         appState.lastAction = 'select-function';
-        renderApp();
+        refreshMainFlow();
+        if (!appState.storagePanelOpen && !appState.rightCollapsed) {
+          refreshRightSidebar();
+        }
+        if (appState.storagePanelOpen) {
+          updateStorageWriters();
+        }
+        updateSidebarSelection();
         scrollActiveFunctionIntoView();
       }
     };
@@ -997,7 +1012,7 @@
           <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
           <div class="relative border border-cyan-900/40 bg-[#060b16]/90 backdrop-blur-xl rounded-sm shadow-2xl p-8 flex flex-col items-center text-center space-y-4">
             <div class="flex items-center gap-2 text-cyan-400 font-display tracking-[0.2em] text-xs uppercase">
-              <i data-lucide="monitor-smartphone" class="w-4 h-4"></i>
+              ${iconSvg('monitor-smartphone', 'w-4 h-4')}
               <span>Desktop Required</span>
             </div>
             <p class="text-slate-200 font-display text-lg">This experience is crafted for widescreen desktops.</p>
@@ -1010,7 +1025,6 @@
         </div>
       `;
       document.body.appendChild(deviceGuardEl);
-      lucide.createIcons();
       return deviceGuardEl;
     };
 
@@ -1032,9 +1046,14 @@
 
       const rightEl = document.getElementById('sidebar-right');
       if (rightEl) {
-        rightEl.classList.toggle('hidden', appState.rightCollapsed);
-        rightEl.classList.toggle('w-96', !appState.rightCollapsed);
-        rightEl.classList.toggle('shrink-0', !appState.rightCollapsed);
+        if (appState.storagePanelOpen) {
+          rightEl.classList.remove('hidden');
+          rightEl.classList.add('w-96', 'shrink-0');
+        } else {
+          rightEl.classList.toggle('hidden', appState.rightCollapsed);
+          rightEl.classList.toggle('w-96', !appState.rightCollapsed);
+          rightEl.classList.toggle('shrink-0', !appState.rightCollapsed);
+        }
       }
     };
 
@@ -1067,6 +1086,9 @@
         appState.lastAction = 'toggle-left';
       }
       if (side === 'right') {
+        if (appState.storagePanelOpen) {
+          closeStoragePanel();
+        }
         appState.rightCollapsed = !appState.rightCollapsed;
         appState.lastAction = 'toggle-right';
       }
@@ -1126,6 +1148,143 @@
       return list.slice(0, 25);
     };
 
+    const storageVarLabel = (item) => (item?.qualified_name || item?.name || '').trim();
+
+    const updateStorageSearchResults = () => {
+      const resultsEl = document.getElementById('storage-search-results');
+      if (!resultsEl) return;
+      const markup = STORAGE_VARIABLES.map((item) => {
+        const label = storageVarLabel(item);
+        const meta = [item?.type, item?.contract].filter(Boolean).join(' • ');
+        const isActive = appState.storageSearch.selectedVar === label;
+        return `
+          <button data-var-key="${label}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${isActive ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+            <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
+            <div class="relative z-10 flex items-center gap-3">
+              <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${isActive ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
+                  ${iconSvg('variable', 'w-3 h-3')}
+              </div>
+              <div class="flex flex-col">
+                  <span data-role="fn-title" class="font-display text-xs truncate max-w-[200px] font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${label.split('.')[1] || label || 'unknown'}</span>
+                  ${meta ? `<span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${meta}</span>` : '' }
+              </div>
+            </div>
+          </button>
+        `;
+      }).join('') || `<div class="px-3 py-6 text-center text-slate-500 font-mono text-xs">No storage variables found.</div>`;
+      resultsEl.innerHTML = markup;
+      resultsEl.querySelectorAll('button[data-var-key]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const key = btn.getAttribute('data-var-key');
+          if (key) {
+            appState.storageSearch.selectedVar = key;
+            updateStorageSearchResults();
+            updateStorageWriters();
+          }
+        });
+      });
+    };
+
+    const updateStorageWriters = () => {
+      const targetEl = document.getElementById('storage-writers-results');
+      if (!targetEl) return;
+      const key = appState.storageSearch.selectedVar;
+      if (!key) {
+        targetEl.innerHTML = `<div class="text-[9px] text-slate-500 font-mono">Select a storage variable to list entry points that write to it.</div>`;
+        return;
+      }
+      const writers = STORAGE_WRITERS_INDEX?.[key] || [];
+      const markup = writers.map((entryName) => {
+        const fn = functionBySignature[entryName];
+        const fnId = fn?.id || '';
+        const label = fn?.signature || entryName;
+        const shortLabel = fn?.name || entryName.split('(')[0] || entryName;
+        return `
+          <button data-fn-id="${fnId}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${fnId && appState.activeFunctionId === fnId ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800' }">
+            <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
+            <div class="relative z-10 flex items-center gap-3">
+              <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${fnId && appState.activeFunctionId === fnId ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg>
+              </div>
+              <div class="flex flex-col">
+              <span class="font-display text-xs font-bold tracking-wide truncate max-w-[300px] ${fnId && appState.activeFunctionId === fnId ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${shortLabel}</span>
+              <span class="text-[9px] font-mono text-slate-600 truncate max-w-[140px] opacity-70 group-hover:opacity-100">${label}</span>
+              </div>
+            </div>
+          </button>
+        `;
+      }).join('') || `<div class="text-[9px] text-slate-500 font-mono">No entry points write to this variable.</div>`;
+      targetEl.innerHTML = markup;
+      targetEl.querySelectorAll('button[data-fn-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-fn-id');
+          if (id) selectFunction(id);
+        });
+      });
+    };
+
+    const openStoragePanel = () => {
+      if (appState.storagePanelOpen) return;
+      appState.storagePanelOpen = true;
+      if (!appState.rightCollapsed) {
+        appState.rightCollapsed = true;
+      }
+      appState.storageSearch = {
+        selectedVar: null
+      };
+      appState.lastAction = 'toggle-storage';
+      refreshRightSidebar();
+      updateStorageSearchResults();
+      updateStorageWriters();
+    };
+
+    const closeStoragePanel = ({refresh = true} = {}) => {
+      if (!appState.storagePanelOpen) return;
+      appState.storagePanelOpen = false;
+      appState.rightCollapsed = true;
+      appState.lastAction = 'toggle-storage';
+      if (refresh) refreshRightSidebar();
+    };
+
+    const toggleStoragePanel = () => {
+      if (appState.storagePanelOpen) {
+        closeStoragePanel();
+      } else {
+        openStoragePanel();
+      }
+    };
+
+    const renderStoragePanel = () => {
+      const animationClass = appState.lastAction === 'toggle-storage' ? 'animate-slideLeft' : 'animate-fadeIn';
+      return `
+        <aside id="sidebar-right" class="w-96 shrink-0 h-full flex flex-col gap-4 overflow-hidden ${animationClass}" style="${animationClass ? 'animation-delay: 120ms' : ''}">
+          ${neonCardMarkup('Storage Writers', 'Find entry points that modify a storage variable', `
+            <div class="absolute inset-0 flex flex-col">
+              <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
+                <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('database', 'w-4 h-4 text-slate-400')}</div>
+                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Storage Variables</span><span class="text-[9px] font-mono text-slate-700">List of global variables.</span></div>
+              </div>
+              <div class="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1" id="storage-search-results"></div>
+            <div class="inset-0 flex flex-col">
+              <div class="px-4 py-3 border-t border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
+                <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('database', 'w-4 h-4 text-slate-400')}</div>
+                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Writers</span><span class="text-[9px] font-mono text-slate-700">List of entry points.</span></div>
+              </div>
+              <div class="border border-cyan-900/30 bg-[#060b16]/80 p-3 max-h-48 overflow-y-auto custom-scrollbar">
+                <div id="storage-writers-results"></div>
+              </div>
+            </div>
+            </div>
+          `, 'h-full', true)}
+        </aside>
+      `;
+    };
+
+    const attachStoragePanelHandlers = () => {
+      updateStorageSearchResults();
+      updateStorageWriters();
+    };
+
     const ensureSearchPalette = () => {
       if (searchPaletteEl) return searchPaletteEl;
       searchPaletteEl = document.createElement('div');
@@ -1147,7 +1306,7 @@
           <div class="relative w-full max-w-3xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
             <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
-              <div class="flex items-center gap-3 px-4 py-3 border-b border-cyan-900/40 bg-cyan-950/30">
+              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
                 <div id="search-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
                 <input id="search-input" type="text" autocomplete="off" placeholder=""
                   class="flex-1 bg-transparent outline-none text-cyan-200 placeholder:text-cyan-800 font-display text-sm caret-transparent font-bold tracking-wide text-glow" />
@@ -1158,7 +1317,6 @@
         </div>
       `;
       document.body.appendChild(searchPaletteEl);
-      lucide.createIcons();
 
       const input = searchPaletteEl.querySelector('#search-input');
       input.addEventListener('input', (e) => {
@@ -1225,8 +1383,9 @@
           ['c', 'Copy as Markdown'],
           ['n', 'Next entry point'],
           ['p', 'Previous entry point'],
-          ['l', 'Toggle left sidebar'],
-          ['r', 'Toggle right sidebar'],
+          ['l', 'Toggle entry points'],
+          ['r', 'Toggle sload / sstore'],
+          ['w', 'Open storage writers panel'],
           ['d / u', 'Scroll down / up'],
           ['+ / -', 'Increase / decrease code font'],
           ['g', 'Jump to top'],
@@ -1248,7 +1407,6 @@
         </div>
       `;
       document.body.appendChild(hotkeyHelpEl);
-      lucide.createIcons();
       return hotkeyHelpEl;
     };
 
@@ -1260,6 +1418,11 @@
         row.classList.toggle('border-l-2', idx === appState.search.selectedIndex);
         row.classList.toggle('border-cyan-500', idx === appState.search.selectedIndex);
       });
+      const resultsEl = searchPaletteEl?.querySelector('#search-results');
+      const activeRow = rows?.[appState.search.selectedIndex];
+      if (resultsEl && activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+      }
     };
 
     const updateSearchResults = () => {
@@ -1271,12 +1434,14 @@
           class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-cyan-900/30 transition-colors">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
-              <i data-lucide="${fn.type === 'write' ? 'zap' : 'hexagon'}" class="w-4 h-4 text-${fn.type === 'write' ? 'cyan-300' : 'slate-300'}"></i>
+              ${fn.type === 'write'
+                ? iconSvg('zap', 'w-4 h-4 text-cyan-300')
+                : iconSvg('hexagon', 'w-4 h-4 text-slate-300')}
             </div>
             <div class="flex flex-col">
               <span class="font-display font-bold tracking-wide text-sm text-cyan-200 text-glow">${fn.name}</span>
               <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="box" class="lucide lucide-box w-3 h-3 text-cyan-600"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                ${iconSvg('box', 'w-3 h-3 text-cyan-600')}
                 <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${fn.contract}.sol</span>
               </div>
             </div>
@@ -1295,7 +1460,6 @@
         });
       });
       updateSearchHighlight();
-      lucide.createIcons();
     };
 
     const openSearchPalette = () => {
@@ -1349,7 +1513,7 @@
                     ${neonCardMarkup(chainLabel, addressLabel, `
                         <div class="absolute inset-0 flex flex-col">
                             <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
-                                <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20"><i data-lucide="mouse-pointer-click" class="w-4 h-4 text-slate-400"></i></div>
+                                <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('mouse-pointer-click', 'w-4 h-4 text-slate-400')}</div>
                                 <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Entry Points</span><span class="text-[9px] text-cyan-700 font-mono">${functionList.length} FUNCTIONS LOADED</span></div>
                             </div>
                             <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -1358,7 +1522,9 @@
                                         <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
                                         <div class="relative z-10 flex items-center gap-3">
                                             <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${appState.activeFunctionId === fn.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
-                                                <i data-lucide="${fn.type === 'write' ? 'zap' : 'hexagon'}" class="w-3 h-3"></i>
+                                                ${fn.type === 'write'
+                                                  ? iconSvg('zap', 'w-3 h-3')
+                                                  : iconSvg('hexagon', 'w-3 h-3')}
                                             </div>
                                             <div class="flex flex-col">
                                                 <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
@@ -1370,7 +1536,7 @@
                             </div>
                             <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
                                   <div class="flex space-x-1"><div class="w-1.5 h-1.5 bg-cyan-400 rounded-sm animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></div><div class="w-1.5 h-1.5 bg-cyan-900/50 rounded-sm"></div><div class="w-1.5 h-1.5 bg-cyan-900/30 rounded-sm"></div></div>
-                                 <span class="text-[8px] font-mono text-cyan-800 uppercase">may the bugs be with you</span>
+                                 <span id="copy-feedback" data-copy-label="may the bugs be with you" class="text-[8px] font-mono text-cyan-800 uppercase">may the bugs be with you</span>
                             </div>
                         </div>
                     `, 'h-full', true)}
@@ -1378,40 +1544,10 @@
             `;
     };
 
-    // --- MAIN RENDER LOOP ---
-    const renderApp = () => {
-      const container = document.getElementById('app-container');
-      const isEntrySwitch = appInitialized && appState.lastAction === 'select-function';
-      if (!functionList.length) {
-        container.innerHTML = `
-          <div class="flex-1 flex items-center justify-center">
-            <div class="flex flex-col items-center gap-4 text-center px-6 py-8 border border-cyan-900/40 bg-[#060b16]/80 rounded-sm shadow-lg max-w-md">
-              <div class="flex items-center gap-2 text-cyan-400 font-display tracking-[0.2em] text-xs font-bold glitch-text tracking-[0.2em] uppercase"> 
-                NO ENTRY POINTS FOUND
-              </div>
-              </div>
-            </div>
-          </div>
-        `;
-        lucide.createIcons();
-        const retryBtn = document.getElementById('retry-generate');
-        if (retryBtn) retryBtn.addEventListener('click', () => window.location.reload());
-        const backBtn = document.getElementById('back-home');
-        if (backBtn) backBtn.addEventListener('click', () => startOutroRedirect('/index.html'));
-        return;
-      }
-
-      if (!appState.activeFunctionId) {
-        appState.activeFunctionId = functionList[0].id;
-      }
-
+    const buildMainFlow = (isEntrySwitch) => {
       const graph = callGraphs[appState.activeFunctionId] || [];
-      const storageReads = stateReadsByFunction[appState.activeFunctionId] || [];
-      const storageWrites = stateWritesByFunction[appState.activeFunctionId] || [];
       const mainAnimationClass = isEntrySwitch ? '' : 'animate-fadeIn';
-
-      // Main Flow
-      const mainFlow = `
+      return `
                 <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
                      <div class="h-full flex flex-col">
                         <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
@@ -1427,54 +1563,20 @@
                      </div>
                 </section>
       `;
+    };
 
-      // Right Sidebar
+    const buildRightSidebar = (isEntrySwitch) => {
+      if (appState.storagePanelOpen) {
+        return renderStoragePanel();
+      }
+      const storageReads = stateReadsByFunction[appState.activeFunctionId] || [];
+      const storageWrites = stateWritesByFunction[appState.activeFunctionId] || [];
       const rightAnimationClass = isEntrySwitch
         ? ''
         : (appState.lastAction === 'toggle-right' ? 'animate-slideLeft' : 'animate-fadeIn');
-      const rightSidebar = `
+      return `
                  <aside id="sidebar-right" class="${appState.rightCollapsed ? 'hidden' : 'w-96 shrink-0'} h-full flex flex-col gap-4 overflow-hidden ${rightAnimationClass}" style="${rightAnimationClass ? 'animation-delay: 200ms' : ''}">
 
-                    ${neonCardMarkup('AI assistant', 'Get help understanding the code', `
-                              <div class="relative z-10 flex-1 min-h-0 p-4">
-                                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none"></div>
-                                <div class="relative z-10">
-                                    <div class="absolute -inset-1 bg-gradient-to-r from-purple-500/20 to-blue-500/20 blur opacity-50"></div>
-                                    <div class="relative bg-[#081020] border border-cyan-900/30 p-3 rounded-sm">
-                                      <div class="flex items-start gap-3 mb-3">
-                                          <div class="w-8 h-8 rounded-sm bg-purple-900/30 border border-purple-500/30 flex items-center justify-center shrink-0">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot w-4 h-4 text-purple-400" aria-hidden="true">
-                                                <path d="M12 8V4H8"></path>
-                                                <rect width="16" height="12" x="4" y="8" rx="2"></rect>
-                                                <path d="M2 14h2"></path>
-                                                <path d="M20 14h2"></path>
-                                                <path d="M15 13v2"></path>
-                                                <path d="M9 13v2"></path>
-                                            </svg>
-                                          </div>
-                                          <div class="text-[10px] text-slate-300 leading-relaxed font-mono">Copy this entry point’s execution flow as Markdown for use with your AI assistant.</div>
-                                      </div>
-                                      <div class="grid grid-cols-1 gap-2">
-                                          <button id="copy-ai-markdown" class="relative font-display uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden group border select-none bg-slate-900/40 text-slate-400 border-slate-700 hover:border-slate-500 hover:text-slate-200 hover:bg-slate-800 text-[10px] px-3 py-1.5 rounded-none w-full text-[9px]">
-                                            <div class="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-current opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                                            <div class="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-current opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                                            <span class="relative z-10 flex items-center gap-2 font-bold">
-                                                <span class="w-3.5 h-3.5">
-                                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy w-3 h-3" aria-hidden="true">
-                                                      <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
-                                                      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
-                                                  </svg>
-                                                </span>
-                                                <span data-copy-label>Copy As Markdown</span>
-                                            </span>
-                                          </button>
-                                      </div>
-                                    </div>
-                                </div>
-                              </div>
-                            </div>
-                        </div>
-                    `, 'flex-1 min-h-[150px] max-h-[190px]', true)}
                     ${neonCardMarkup('SLOAD', 'Storage variables read', `
                         <div class="absolute inset-0 flex flex-col bg-[#050a14]">
                             <div class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 relative">
@@ -1493,6 +1595,63 @@
                     `, 'flex-1 min-h-[150px]', true)}
                  </aside>
             `;
+    };
+
+    const refreshMainFlow = () => {
+      const mainEl = document.getElementById('main-flow');
+      if (mainEl) mainEl.outerHTML = buildMainFlow(true);
+      document.querySelectorAll('.typing-text').forEach(el => {
+        const text = el.getAttribute('data-text');
+        el.innerText = '';
+        let i = 0;
+        const interval = setInterval(() => {
+          if (i < text.length) {
+            el.innerText += text.charAt(i);
+            i++;
+          } else {
+            clearInterval(interval);
+          }
+        }, 20);
+      });
+    };
+
+    const refreshRightSidebar = (isEntrySwitch = true) => {
+      const rightEl = document.getElementById('sidebar-right');
+      if (rightEl) rightEl.outerHTML = buildRightSidebar(isEntrySwitch);
+      if (appState.storagePanelOpen) {
+        attachStoragePanelHandlers();
+      }
+      applySidebarVisibility();
+    };
+
+    // --- MAIN RENDER LOOP ---
+    const renderApp = () => {
+      const container = document.getElementById('app-container');
+      const isEntrySwitch = appInitialized && appState.lastAction === 'select-function';
+      if (!functionList.length) {
+        container.innerHTML = `
+          <div class="flex-1 flex items-center justify-center">
+            <div class="flex flex-col items-center gap-4 text-center px-6 py-8 border border-cyan-900/40 bg-[#060b16]/80 rounded-sm shadow-lg max-w-md">
+              <div class="flex items-center gap-2 text-cyan-400 font-display tracking-[0.2em] text-xs font-bold glitch-text tracking-[0.2em] uppercase"> 
+                NO ENTRY POINTS FOUND
+              </div>
+              </div>
+            </div>
+          </div>
+        `;
+        const retryBtn = document.getElementById('retry-generate');
+        if (retryBtn) retryBtn.addEventListener('click', () => window.location.reload());
+        const backBtn = document.getElementById('back-home');
+        if (backBtn) backBtn.addEventListener('click', () => startOutroRedirect('/index.html'));
+        return;
+      }
+
+      if (!appState.activeFunctionId) {
+        appState.activeFunctionId = functionList[0].id;
+      }
+
+      const mainFlow = buildMainFlow(isEntrySwitch);
+      const rightSidebar = buildRightSidebar(isEntrySwitch);
 
       if (!appInitialized) {
         container.innerHTML = renderLeftSidebar() + mainFlow + rightSidebar;
@@ -1506,9 +1665,9 @@
       }
 
       // Re-init Icons
-      lucide.createIcons();
-
-      attachAIAssistantHandler();
+      if (appState.storagePanelOpen) {
+        attachStoragePanelHandlers();
+      }
       applySidebarVisibility();
 
       // Init Typing Effects
@@ -1538,6 +1697,10 @@
       callGraphs = hydrated.callGraphs;
       stateReadsByFunction = hydrated.stateReads;
       stateWritesByFunction = hydrated.stateWrites;
+      functionBySignature = functionList.reduce((acc, fn) => {
+        acc[fn.signature] = fn;
+        return acc;
+      }, {});
       appState.activeFunctionId = functionList[0]?.id || null;
 
       ensureSearchPalette();
@@ -1577,6 +1740,23 @@
             closeHotkeyHelp();
           }
           return;
+        }
+
+        if (appState.storagePanelOpen) {
+          if (key === 'w' && !isTyping) {
+            event.preventDefault();
+            toggleStoragePanel();
+            return;
+          }
+          if (key === 'r') {
+            event.preventDefault();
+            closeStoragePanel({refresh: false});
+            appState.rightCollapsed = false;
+            appState.lastAction = 'toggle-right';
+            refreshRightSidebar(false);
+            applySidebarVisibility();
+            return;
+          }
         }
 
         if (key === 'h' || key === 'backspace') {
@@ -1620,6 +1800,9 @@
         } else if (key === 'p') {
           event.preventDefault();
           stepFunctionSelection(-1);
+        } else if (key === 'w') {
+          event.preventDefault();
+          toggleStoragePanel();
         } else if (key === '?') {
           event.preventDefault();
           openHotkeyHelp();
@@ -1635,8 +1818,7 @@
           openExplorerForAddress();
         } else if (key === 'c') {
           event.preventDefault();
-          const copyBtn = document.getElementById('copy-ai-markdown');
-          if (copyBtn && !copyBtn.disabled) copyBtn.click();
+          copyMarkdownReport();
         }
       });
 
@@ -1645,7 +1827,6 @@
       applyResponsiveGuard();
       window.addEventListener('resize', applyResponsiveGuard);
 
-      attachAIAssistantHandler();
     });
 
   </script>

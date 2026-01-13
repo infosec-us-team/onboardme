@@ -4,7 +4,9 @@ Below is a short user interface walkthrough, starting from the homepage, then ty
 
 <https://github.com/user-attachments/assets/fc6cabcb-f3c2-4335-88d0-a79dde1187a2>
 
-> ⚠️ This is a highly experimental tool. It may fail on some contracts, compilers, or Slither versions. Expect sharp edges.
+> ⚠️ Highly experimental. It may fail on some contracts, compilers, or Slither versions. Expect sharp edges.
+>
+> ⚠️ The videos and images in this README.md file will differ from the actual interface, as we add features faster than we update the images in the README.
 
 Jumping between files and tabs isn’t a great way to study an entry point in a Solidity smart contract.
 
@@ -14,7 +16,7 @@ OnboardMe gives you that. Press n to jump to the next entry point (no matter whe
 
 It doesn’t replace your IDE; it’s just the fastest way to understand all possible execution paths, so you can dive deeper with your IDE when needed.
 
-> Tip: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow.
+> **Tip**: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow and most features can only be triggered from a shortcut.
 
 ## Understand the UI layout
 
@@ -29,6 +31,10 @@ The center section of the screen has the currently selected entry point, with al
 Pressing `r` toggles the visibility of the right panel, which contains every global variable read/written during the execution of this entry point.
 
 <img src="./resources/2.png" alt="" style="width:600px; height:auto;">
+
+Pressing `w` toggles a data dependency panel that lets you list all possible ways to modify a specific storage variable, either directly or indirectly.
+
+<img src="./resources/6.png" alt="" style="width:600px; height:auto;">
 
 ### Left
 

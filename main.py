@@ -129,6 +129,7 @@ def _load_dotenv(path: Path | None = None) -> None:
     finally:
         _DOTENV_LOADED = True
 
+
 # Set at runtime once CLI args are parsed.
 slither_object: Slither | None = None
 
@@ -183,8 +184,16 @@ def _function_selector(item: Any) -> Union[str, None]:
 
 def _state_var_record(var: Any) -> Dict[str, Any]:
     """Return JSON-serializable info for a state variable, including its source code."""
+    contract = getattr(var, "contract", None) or getattr(
+        var, "contract_declarer", None)
+    contract_name = getattr(contract, "name", "") if contract else ""
+    var_name = getattr(var, "name", "")
+    qualified_name = f"{contract_name}.{
+        var_name}" if contract_name and var_name else var_name
     record: Dict[str, Any] = {
-        "name": getattr(var, "name", ""),
+        "name": var_name,
+        "contract": contract_name,
+        "qualified_name": qualified_name,
         "type": str(getattr(var, "type", "")),
         "source": _source_text(var),
     }
@@ -552,6 +561,39 @@ def _iter_audited_contracts() -> Sequence[Contract]:
 
 # ----------- Traversal --------------------------------------------------------
 
+def _resolve_unimplemented_call(
+    caller: Union[Function, Modifier],
+    target: Union[Function, Modifier, None],
+    root_contract: Contract | None,
+) -> Union[Function, Modifier, None]:
+    """Resolve unimplemented interface/abstract calls to the first implemented override."""
+    if target is None or not isinstance(target, FunctionContract):
+        return target
+    if not hasattr(target, "is_implemented") or target.is_implemented:
+        return target
+
+    signature = target.full_name
+    caller_contract = getattr(caller, "contract_declarer", None) or getattr(caller, "contract", None)
+
+    # First, resolve using the caller's inheritance (super linearization).
+    if caller_contract is not None:
+        for base in getattr(caller_contract, "inheritance", []):
+            for fn in getattr(base, "functions_declared", []):
+                if fn.full_name == signature and getattr(fn, "is_implemented", True):
+                    return fn
+
+    # If still unresolved and the caller is not the entry contract, search the entry contract overrides.
+    if root_contract is not None and root_contract is not caller_contract:
+        search_contracts: List[Contract] = [root_contract]
+        search_contracts.extend(getattr(root_contract, "inheritance", []))
+        for base in search_contracts:
+            for fn in getattr(base, "functions_declared", []):
+                if fn.full_name == signature and getattr(fn, "is_implemented", True):
+                    return fn
+
+    return target
+
+
 def _walk_callable(
     item: Union[Function, Modifier],
     visited: Set[str],
@@ -559,6 +601,7 @@ def _walk_callable(
     # reverting_branches: List[Dict[str, Any]],
     # require_asserts: List[Dict[str, Any]],
     callable_index: Dict[str, Union[Function, Modifier]],
+    root_contract: Contract,
 ) -> None:
     """
     Record this callable and recursively visit everything it can execute:
@@ -572,6 +615,7 @@ def _walk_callable(
         return
 
     name = _display_name(item)
+
     if name in visited:
         return
 
@@ -609,6 +653,7 @@ def _walk_callable(
                 # reverting_branches,
                 # require_asserts,
                 callable_index,
+                root_contract,
             )
 
     CALL_ATTRS = (
@@ -624,6 +669,7 @@ def _walk_callable(
 
     for call in all_calls:
         target = getattr(call, "function", None)
+        target = _resolve_unimplemented_call(item, target, root_contract)
         _walk_callable(
             target,
             visited,
@@ -631,6 +677,7 @@ def _walk_callable(
             # reverting_branches,
             # require_asserts,
             callable_index,
+            root_contract,
         )
 
 # ----------- Entry-point processing ------------------------------------------
@@ -687,6 +734,14 @@ def build_entry_point_flows() -> List[Dict[str, Any]]:
 
             state_vars_read = _collect_state_vars(entry_point, "read")
             state_vars_written = _collect_state_vars(entry_point, "written")
+            state_vars_read_keys = [
+                v.get("qualified_name") or v.get("name", "")
+                for v in state_vars_read
+            ]
+            state_vars_written_keys = [
+                v.get("qualified_name") or v.get("name", "")
+                for v in state_vars_written
+            ]
 
             _walk_callable(
                 entry_point,
@@ -695,6 +750,7 @@ def build_entry_point_flows() -> List[Dict[str, Any]]:
                 # reverting_branches,
                 # require_asserts,
                 callable_index,
+                contract,
             )
 
             # Deduplicate reverting branches by branch side + expression.
@@ -745,6 +801,8 @@ def build_entry_point_flows() -> List[Dict[str, Any]]:
                     "reads_msg_sender": reads_msg_sender,
                     "state_variables_read": state_vars_read,
                     "state_variables_written": state_vars_written,
+                    "state_variables_read_keys": state_vars_read_keys,
+                    "state_variables_written_keys": state_vars_written_keys,
                     # "reverting_if_branches": unique_reverts,
                     # "require_assert_statements": unique_require_asserts,
                     # "data_dependencies": _collect_data_dependencies(entry_point),
@@ -768,11 +826,40 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
 
     data = build_entry_point_flows()
 
+    storage_vars_map: Dict[str, Dict[str, Any]] = {}
+    writers_index: Dict[str, List[str]] = {}
+    for entry in data:
+        for var in entry.get("state_variables_read", []) + entry.get("state_variables_written", []):
+            qualified = var.get("qualified_name") or var.get("name", "")
+            if not qualified:
+                continue
+            storage_vars_map.setdefault(qualified, var)
+        for qualified in entry.get("state_variables_written_keys", []) or []:
+            if not qualified:
+                continue
+            writers = writers_index.setdefault(qualified, [])
+            entry_name = entry.get("entry_point", "")
+            if entry_name and entry_name not in writers:
+                writers.append(entry_name)
+
+    storage_vars = sorted(
+        storage_vars_map.values(),
+        key=lambda v: (
+            (v.get("qualified_name") or v.get("name") or "").lower()),
+    )
+
     template_path = Path("template.html")
     template_html = template_path.read_text(encoding="utf-8")
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2)
     inner_json = data_json[1:-1].strip() if len(data_json) > 2 else ""
+    storage_vars_json = json.dumps(storage_vars, ensure_ascii=False, indent=2)
+    storage_vars_inner = (
+        storage_vars_json[1:-1].strip() if len(storage_vars_json) > 2 else ""
+    )
+    writers_index_json = json.dumps(
+        writers_index, ensure_ascii=False, indent=2
+    )
     audited_contracts = list(_iter_audited_contracts())
     if audited_contracts:
         title_contract = audited_contracts[0].name
@@ -783,6 +870,10 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
         "REPLACE_THIS_WITH_TITLE", title_contract
     ).replace(
         "REPLACE_THIS_WITH_ENTRY_POINTS_DATA", inner_json
+    ).replace(
+        "REPLACE_THIS_WITH_STORAGE_VARIABLES", storage_vars_inner
+    ).replace(
+        "REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX", writers_index_json
     ).replace(
         "REPLACE_THIS_WITH_CHAIN", chain
     ).replace(
@@ -796,7 +887,8 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
     # write_text already overwrites; avoid deleting first to preserve last-good file if generation fails mid-run.
     output_path.write_text(filled_html, encoding="utf-8")
 
-    contract_names = sorted({entry.get("contract", "") for entry in data if entry.get("contract")})
+    contract_names = sorted({entry.get("contract", "")
+                            for entry in data if entry.get("contract")})
 
     return {
         "output_path": output_path,
@@ -828,7 +920,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_path = result["output_path"]
     file_url = output_path.resolve().as_uri()
     print(
-        f"Wrote {result['entry_count']} entry point flows to {output_path} using target {result['target']}"
+        f"Wrote {result['entry_count']} entry point flows to {
+            output_path} using target {result['target']}"
     )
     print(f"Open in browser: {file_url}")
 
