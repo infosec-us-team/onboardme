@@ -421,6 +421,10 @@
     const CODE_FONT_MIN = 8;
     const CODE_FONT_MAX = 24;
     const AUDIT_STORAGE_KEY = 'auditedEntryPoints';
+    const getAuditStorageKey = () => {
+      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
+      return `${AUDIT_STORAGE_KEY}:${address}`;
+    };
 
     let appState = {
       activeFunctionId: null,
@@ -446,7 +450,7 @@
 
     const loadAuditMarks = () => {
       try {
-        const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+        const raw = localStorage.getItem(getAuditStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
           auditedFunctionIds = new Set(parsed.filter(Boolean));
@@ -458,7 +462,7 @@
 
     const persistAuditMarks = () => {
       try {
-        localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify([...auditedFunctionIds]));
+        localStorage.setItem(getAuditStorageKey(), JSON.stringify([...auditedFunctionIds]));
       } catch (_) {
         // Storage might be unavailable; ignore silently.
       }
