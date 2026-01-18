@@ -54,6 +54,9 @@ def run(directory: Path, host: str, port: int) -> None:
             if parsed.path == "/generate":
                 self._handle_generate(parsed)
                 return
+            if parsed.path == "/generate/stream":
+                self._handle_generate_stream(parsed)
+                return
             return super().do_GET()
 
         def do_POST(self):  # noqa: N802 - http.server naming
@@ -129,6 +132,72 @@ def run(directory: Path, host: str, port: int) -> None:
                     },
                 )
 
+        def _handle_generate_stream(self, parsed):
+            params = parse_qs(parsed.query)
+            address_list = params.get("address") or params.get("addr")
+            chain_list = params.get("chain") or params.get("network")
+
+            if not address_list:
+                self._sse_response("error", {"error": "address is required"})
+                return
+
+            address = address_list[0]
+            chain = (chain_list[0] if chain_list else None) or None
+
+            def emit(event: str, payload: dict) -> None:
+                self._sse_response(event, payload, keep_open=True)
+
+            def progress_cb(message: str, meta: dict | None = None) -> None:
+                payload = {"message": message}
+                if meta:
+                    payload.update(meta)
+                emit("progress", payload)
+
+            emit("progress", {"message": "Starting generation"})
+
+            try:
+                result = flow_gen.generate_html(
+                    address,
+                    chain,
+                    output_dir=directory,
+                    progress_cb=progress_cb,
+                )
+                filename = result["output_path"].name
+                contract_names = result.get("contracts", [])
+                emit("progress", {"message": "Updating registry"})
+                self._update_registry(
+                    directory,
+                    address=address,
+                    chain=chain,
+                    filename=filename,
+                    contract_names=contract_names,
+                )
+                emit(
+                    "done",
+                    {
+                        "status": "ok",
+                        "file": filename,
+                        "url": f"/{filename}",
+                        "contracts": contract_names,
+                    },
+                )
+            except ValueError as exc:
+                emit(
+                    "error",
+                    {
+                        "error": "invalid request",
+                        "detail": str(exc),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                emit(
+                    "error",
+                    {
+                        "error": "failed to generate contract flows",
+                        "detail": str(exc),
+                    },
+                )
+
         def _json_response(self, code: int, payload: dict) -> None:
             data = json.dumps(payload).encode("utf-8")
             self.send_response(code)
@@ -136,6 +205,23 @@ def run(directory: Path, host: str, port: int) -> None:
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+
+        def _sse_response(self, event: str, payload: dict, keep_open: bool = False) -> None:
+            data = json.dumps(payload)
+            if not getattr(self, "_sse_headers_sent", False):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
+                self._sse_headers_sent = True
+            self.wfile.write(f"event: {event}\n".encode("utf-8"))
+            for line in data.splitlines():
+                self.wfile.write(f"data: {line}\n".encode("utf-8"))
+            self.wfile.write(b"\n")
+            self.wfile.flush()
+            if not keep_open:
+                self.wfile.flush()
 
         def _update_registry(self, base_dir: Path, address: str, chain: str, filename: str, contract_names: list[str]):
             registry_path = base_dir / "registry.json"
