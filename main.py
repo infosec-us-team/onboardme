@@ -136,6 +136,16 @@ slither_object: Slither | None = None
 # ----------- Helper utilities -------------------------------------------------
 
 
+def _normalize_address(address: str | None) -> str:
+    """Return a lowercased 0x-prefixed address string for comparisons."""
+    if not address:
+        return ""
+    addr = address.strip().lower()
+    if not addr.startswith("0x"):
+        addr = f"0x{addr}"
+    return addr
+
+
 def _display_name(item: Union[Function, Modifier]) -> str:
     """Readable name with declarer contract prefix."""
     declarer = getattr(item, "contract_declarer", None)
@@ -540,10 +550,73 @@ def _called_functions(fn: Function) -> Set[Function]:
     return {c for c in called if c}
 
 
-def _iter_audited_contracts() -> Sequence[Contract]:
+def _contract_key(contract: Contract) -> tuple[str, str]:
+    """Stable contract identity key (name + source file)."""
+    sm = getattr(contract, "source_mapping", None)
+    filename = ""
+    if sm and getattr(sm, "filename", None):
+        filename = getattr(sm.filename, "absolute", "") or str(sm.filename)
+    return (contract.name, filename)
+
+
+def _resolve_contract_name_from_export(address: str, chain: str) -> str | None:
+    """Try to infer the verified contract name from crytic-export folder names."""
+    export_root = Path("crytic-export") / "etherscan-contracts"
+    if not export_root.exists():
+        return None
+    prefix = f"{_normalize_address(address)}{chain.lower()}-"
+    for entry in export_root.iterdir():
+        if not entry.is_dir():
+            continue
+        name = entry.name
+        if name.lower().startswith(prefix):
+            candidate = name[len(prefix):]
+            return candidate or None
+    return None
+
+
+def _resolve_root_contracts(address: str, chain: str) -> List[Contract]:
+    """Return the deployed contract(s) for the address, if detectable."""
+    if slither_object is None:
+        raise RuntimeError("Slither instance is not initialized.")
+
+    target = _normalize_address(address)
+    if not target:
+        return []
+
+    matches: List[Contract] = []
+    for contract in slither_object.contracts:
+        for attr in ("address", "contract_address", "deployed_address"):
+            val = getattr(contract, attr, None)
+            if val and _normalize_address(str(val)) == target:
+                matches.append(contract)
+                break
+
+    if matches:
+        return matches
+
+    name_hint = _resolve_contract_name_from_export(address, chain)
+    if not name_hint:
+        return []
+
+    return [c for c in slither_object.contracts if c.name == name_hint]
+
+
+def _iter_audited_contracts(
+    root_contracts: Sequence[Contract] | None = None,
+) -> Sequence[Contract]:
     """Yield concrete, non-test contracts to inspect."""
     if slither_object is None:
         raise RuntimeError("Slither instance is not initialized.")
+
+    allowed_keys: Set[tuple[str, str]] | None = None
+    if root_contracts:
+        allowed_keys = set()
+        for root in root_contracts:
+            allowed_keys.add(_contract_key(root))
+            for base in getattr(root, "inheritance", []):
+                allowed_keys.add(_contract_key(base))
+
     return sorted(
         (
             contract
@@ -554,6 +627,7 @@ def _iter_audited_contracts() -> Sequence[Contract]:
             and not contract.is_interface
             and not contract.is_library
             and not contract.is_abstract
+            and (allowed_keys is None or _contract_key(contract) in allowed_keys)
         ),
         key=lambda contract: contract.name,
     )
@@ -698,7 +772,9 @@ def _entry_points_for(contract: Contract) -> List[Function]:
     ]
 
 
-def build_entry_point_flows() -> List[Dict[str, Any]]:
+def build_entry_point_flows(
+    root_contracts: Sequence[Contract] | None = None,
+) -> List[Dict[str, Any]]:
     """Assemble structured data for every entry point and its execution flow."""
     if slither_object is None:
         raise RuntimeError("Slither instance is not initialized.")
@@ -721,7 +797,7 @@ def build_entry_point_flows() -> List[Dict[str, Any]]:
     #        print(f"fn {_display_name(fn)} can be reached from {
     #              _display_name(reachable_from)}")
 
-    for contract in _iter_audited_contracts():
+    for contract in _iter_audited_contracts(root_contracts):
         for entry_point in _entry_points_for(contract):
             visited: Set[str] = set()
             flow: List[Dict[str, Any]] = []
@@ -824,7 +900,8 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
     global slither_object
     slither_object = Slither(target, skip_analyze=False)
 
-    data = build_entry_point_flows()
+    root_contracts = _resolve_root_contracts(address, chain)
+    data = build_entry_point_flows(root_contracts)
 
     storage_vars_map: Dict[str, Dict[str, Any]] = {}
     writers_index: Dict[str, List[str]] = {}
@@ -860,7 +937,7 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
     writers_index_json = json.dumps(
         writers_index, ensure_ascii=False, indent=2
     )
-    audited_contracts = list(_iter_audited_contracts())
+    audited_contracts = list(_iter_audited_contracts(root_contracts))
     if audited_contracts:
         title_contract = audited_contracts[0].name
     else:
