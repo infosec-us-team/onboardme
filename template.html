@@ -1278,6 +1278,9 @@
         }
         appState.rightCollapsed = !appState.rightCollapsed;
         appState.lastAction = 'toggle-right';
+        if (!appState.rightCollapsed) {
+          refreshRightSidebar(false);
+        }
       }
       applySidebarVisibility();
 

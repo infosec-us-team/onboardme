@@ -4,18 +4,29 @@ import argparse
 import json
 import logging
 import os
+import threading
+import time
 from itertools import chain
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Set, Union
+from typing import Any, Callable, Dict, List, Sequence, Set, Union
 
 from slither.core.declarations import Contract, FunctionContract
 from slither.core.declarations.function import Function
 from slither.core.declarations.modifier import Modifier
 from slither.core.declarations.solidity_variables import SolidityFunction
+from slither.core.expressions.identifier import Identifier
+from slither.core.expressions.index_access import IndexAccess
+from slither.core.expressions.member_access import MemberAccess
 from slither.core.declarations.structure import Structure
 from slither.core.solidity_types.user_defined_type import UserDefinedType
 from slither.core.cfg.node import NodeType
 from slither.slithir.operations import SolidityCall
+from slither.slithir.operations.assignment import Assignment
+from slither.slithir.operations.delete import Delete
+from slither.slithir.operations.high_level_call import HighLevelCall
+from slither.slithir.operations.internal_call import InternalCall
+from slither.slithir.operations.library_call import LibraryCall
+from slither.slithir.variables.reference import ReferenceVariable
 from slither.slither import Slither
 from slither.utils.tests_pattern import is_test_file
 from slither.utils.code_complexity import compute_cyclomatic_complexity
@@ -132,6 +143,7 @@ def _load_dotenv(path: Path | None = None) -> None:
 
 # Set at runtime once CLI args are parsed.
 slither_object: Slither | None = None
+ProgressCallback = Callable[[str, Dict[str, Any] | None], None]
 
 # ----------- Helper utilities -------------------------------------------------
 
@@ -154,6 +166,16 @@ def _display_name(item: Union[Function, Modifier]) -> str:
     if declarer and hasattr(item, "name"):
         return f"{declarer.name}.{item.name}"
     return getattr(item, "full_name", getattr(item, "name", "<unknown>"))
+
+
+def _report_progress(callback: ProgressCallback | None, message: str, **meta: Any) -> None:
+    """Best-effort progress reporting."""
+    if not callback:
+        return
+    try:
+        callback(message, meta or None)
+    except Exception:
+        pass
 
 
 def _source_text(item: Any) -> str:
@@ -299,8 +321,221 @@ def _collect_state_vars(item: Union[Function, Modifier], kind: str) -> List[Dict
         else []
     )
 
-    unique = {v for v in candidates if hasattr(v, "name")}
+    unique: Set[StateVariable] = {
+        v for v in candidates if isinstance(v, StateVariable)
+    }
+
+    # Expand with node-level info to catch struct member writes/reads.
+    for node in getattr(item, "nodes", []) or []:
+        for attr in (f"state_variables_{kind}_recursive", f"state_variables_{kind}"):
+            node_vars = getattr(node, attr, None)
+            node_vars = node_vars() if callable(node_vars) else node_vars
+            for var in node_vars or []:
+                if isinstance(var, StateVariable):
+                    unique.add(var)
+
+        node_vars = getattr(node, f"variables_{kind}", None)
+        node_vars = node_vars() if callable(node_vars) else node_vars
+        for var in node_vars or []:
+            if isinstance(var, StateVariable):
+                unique.add(var)
+                continue
+            if getattr(var, "is_state_variable", False):
+                unique.add(var)
+                continue
+            try:
+                state_var = getattr(var, "state_variable", None)
+            except Exception:
+                state_var = None
+            if isinstance(state_var, StateVariable):
+                unique.add(state_var)
+
     return [_state_var_record(v) for v in sorted(unique, key=lambda v: v.name or "")]
+
+
+def _base_storage_source(expr: Any, params: Set[LocalVariable], state_vars: Set[StateVariable]) -> Any:
+    """Resolve a storage alias expression back to a parameter or state variable."""
+    if isinstance(expr, Identifier):
+        val = expr.value
+        if isinstance(val, StateVariable):
+            return val
+        if isinstance(val, LocalVariable) and val in params:
+            return val
+        return None
+    if isinstance(expr, IndexAccess):
+        return _base_storage_source(expr.expression_left, params, state_vars)
+    if isinstance(expr, MemberAccess):
+        return _base_storage_source(expr.expression, params, state_vars)
+    return None
+
+
+def _build_storage_aliases(
+    item: Union[Function, Modifier],
+    params: Set[LocalVariable],
+    state_vars: Set[StateVariable],
+) -> Dict[LocalVariable, Any]:
+    """Map storage local variables to their base parameter or state variable."""
+    aliases: Dict[LocalVariable, Any] = {}
+    for var in getattr(item, "local_variables", []) or []:
+        if not isinstance(var, LocalVariable):
+            continue
+        if not getattr(var, "is_storage", False):
+            continue
+        expr = getattr(var, "expression", None)
+        if not expr:
+            continue
+        base = _base_storage_source(expr, params, state_vars)
+        if base is not None:
+            aliases[var] = base
+    return aliases
+
+
+def _resolve_written_base(
+    var: Any,
+    params: Set[LocalVariable],
+    alias_map: Dict[LocalVariable, Any],
+    name_map: Dict[str, Any],
+) -> Any:
+    """Resolve a written variable to its base storage param/state var."""
+    if isinstance(var, ReferenceVariable):
+        var = var.points_to_origin
+        if var is None:
+            return None
+    if isinstance(var, StateVariable):
+        return var
+    if isinstance(var, LocalVariable):
+        if var in params:
+            return var
+        if var in alias_map:
+            return alias_map[var]
+    name = getattr(var, "name", "") or ""
+    if name:
+        base = name_map.get(name)
+        if base is not None:
+            return base
+        if "." in name:
+            prefix = name.split(".", 1)[0]
+            base = name_map.get(prefix)
+            if base is not None:
+                return base
+    return None
+
+
+def _resolve_written_lvalue(
+    lvalue: Any,
+    params: Set[LocalVariable],
+    alias_map: Dict[LocalVariable, Any],
+    name_map: Dict[str, Any],
+) -> Any:
+    """Resolve an IR lvalue (possibly a ReferenceVariable) to a base variable."""
+    if isinstance(lvalue, ReferenceVariable):
+        base = lvalue.points_to_origin
+    else:
+        base = lvalue
+    return _resolve_written_base(base, params, alias_map, name_map)
+
+
+def _storage_params_written(
+    item: Union[Function, Modifier],
+    cache: Dict[Any, Set[int]],
+    visiting: Set[Any],
+) -> Set[int]:
+    """Return indices of storage parameters written within a callable (propagated)."""
+    if item in cache:
+        return cache[item]
+    if item in visiting:
+        return set()
+    visiting.add(item)
+
+    params = list(getattr(item, "parameters", []) or [])
+    param_set = {p for p in params if isinstance(p, LocalVariable)}
+    param_indices = {p: idx for idx, p in enumerate(params)}
+    state_vars = set(getattr(getattr(item, "contract", None), "state_variables", []) or [])
+    alias_map = _build_storage_aliases(item, param_set, state_vars)
+    name_map: Dict[str, Any] = {p.name: p for p in param_set if p.name}
+    for local, base in alias_map.items():
+        if local.name:
+            name_map[local.name] = base
+
+    written_params: Set[LocalVariable] = set()
+
+    for node in getattr(item, "nodes", []) or []:
+        node_vars = getattr(node, "variables_written", None)
+        node_vars = node_vars() if callable(node_vars) else node_vars
+        for var in node_vars or []:
+            base = _resolve_written_base(var, param_set, alias_map, name_map)
+            if isinstance(base, LocalVariable) and base in param_set and getattr(base, "is_storage", False):
+                written_params.add(base)
+
+    operations = getattr(item, "all_slithir_operations", None)
+    if callable(operations):
+        for ir in operations():
+            if isinstance(ir, (Assignment, Delete)):
+                lvalue = getattr(ir, "lvalue", None)
+                base = _resolve_written_lvalue(lvalue, param_set, alias_map, name_map)
+                if isinstance(base, LocalVariable) and base in param_set and getattr(base, "is_storage", False):
+                    written_params.add(base)
+                continue
+            if isinstance(ir, (InternalCall, HighLevelCall, LibraryCall)):
+                callee = getattr(ir, "function", None)
+                if not isinstance(callee, Function):
+                    continue
+                callee_written = _storage_params_written(callee, cache, visiting)
+                if not callee_written:
+                    continue
+                for idx in callee_written:
+                    if idx >= len(ir.arguments):
+                        continue
+                    arg = ir.arguments[idx]
+                    base = _resolve_written_base(arg, param_set, alias_map, name_map)
+                    if isinstance(base, LocalVariable) and base in param_set and getattr(base, "is_storage", False):
+                        written_params.add(base)
+
+    visiting.remove(item)
+    written_indices = {param_indices[p] for p in written_params if p in param_indices}
+    cache[item] = written_indices
+    return written_indices
+
+
+def _collect_state_vars_via_storage_params(entry_point: Function) -> Set[StateVariable]:
+    """Resolve state vars written through storage parameters in called functions."""
+    params = set(getattr(entry_point, "parameters", []) or [])
+    state_vars = set(getattr(getattr(entry_point, "contract", None), "state_variables", []) or [])
+    alias_map = _build_storage_aliases(entry_point, params, state_vars)
+    name_map: Dict[str, Any] = {p.name: p for p in params if getattr(p, "name", None)}
+    for local, base in alias_map.items():
+        if local.name:
+            name_map[local.name] = base
+
+    written_state_vars: Set[StateVariable] = set()
+    cache: Dict[Any, Set[int]] = {}
+    visiting: Set[Any] = set()
+
+    operations = getattr(entry_point, "all_slithir_operations", None)
+    if not callable(operations):
+        return written_state_vars
+
+    for ir in operations():
+        if not isinstance(ir, (InternalCall, HighLevelCall, LibraryCall)):
+            continue
+        callee = getattr(ir, "function", None)
+        if not isinstance(callee, Function):
+            continue
+        callee_written = _storage_params_written(callee, cache, visiting)
+        if not callee_written:
+            continue
+        for idx in callee_written:
+            if idx >= len(ir.arguments):
+                continue
+            arg = ir.arguments[idx]
+            if isinstance(arg, StateVariable):
+                written_state_vars.add(arg)
+                continue
+            base = _resolve_written_base(arg, params, alias_map, name_map)
+            if isinstance(base, StateVariable):
+                written_state_vars.add(base)
+
+    return written_state_vars
 
 
 def _branch_contains_revert(node) -> bool:
@@ -774,6 +1009,7 @@ def _entry_points_for(contract: Contract) -> List[Function]:
 
 def build_entry_point_flows(
     root_contracts: Sequence[Contract] | None = None,
+    progress_cb: ProgressCallback | None = None,
 ) -> List[Dict[str, Any]]:
     """Assemble structured data for every entry point and its execution flow."""
     if slither_object is None:
@@ -797,8 +1033,33 @@ def build_entry_point_flows(
     #        print(f"fn {_display_name(fn)} can be reached from {
     #              _display_name(reachable_from)}")
 
-    for contract in _iter_audited_contracts(root_contracts):
+    audited_contracts = list(_iter_audited_contracts(root_contracts))
+    _report_progress(
+        progress_cb,
+        "Collecting audited contracts",
+        count=len(audited_contracts),
+    )
+    total_entries = sum(len(_entry_points_for(contract)) for contract in audited_contracts)
+    entry_index = 0
+
+    for contract_index, contract in enumerate(audited_contracts, start=1):
+        _report_progress(
+            progress_cb,
+            "Scanning contract",
+            contract=contract.name,
+            index=contract_index,
+            total=len(audited_contracts),
+        )
         for entry_point in _entry_points_for(contract):
+            entry_index += 1
+            _report_progress(
+                progress_cb,
+                "Analyzing entry point",
+                entry_point=_display_name(entry_point),
+                contract=contract.name,
+                index=entry_index,
+                total=total_entries,
+            )
             visited: Set[str] = set()
             flow: List[Dict[str, Any]] = []
             # reverting_branches: List[Dict[str, Any]] = []
@@ -810,6 +1071,18 @@ def build_entry_point_flows(
 
             state_vars_read = _collect_state_vars(entry_point, "read")
             state_vars_written = _collect_state_vars(entry_point, "written")
+            extra_written = _collect_state_vars_via_storage_params(entry_point)
+            if extra_written:
+                existing = {
+                    v.get("qualified_name") or v.get("name", "")
+                    for v in state_vars_written
+                }
+                for var in sorted(extra_written, key=lambda v: v.name or ""):
+                    record = _state_var_record(var)
+                    key = record.get("qualified_name") or record.get("name", "")
+                    if key and key not in existing:
+                        state_vars_written.append(record)
+                        existing.add(key)
             state_vars_read_keys = [
                 v.get("qualified_name") or v.get("name", "")
                 for v in state_vars_read
@@ -870,6 +1143,15 @@ def build_entry_point_flows(
                     item["data_dependencies"] = _collect_data_dependencies(
                         target_mod)
 
+            _report_progress(
+                progress_cb,
+                "Entry point complete",
+                entry_point=_display_name(entry_point),
+                contract=contract.name,
+                index=entry_index,
+                total=total_entries,
+            )
+
             entries.append(
                 {
                     "contract": contract.name,
@@ -891,18 +1173,66 @@ def build_entry_point_flows(
 
 # ----------- Main ------------------------------------------------------------
 
-def generate_html(address: str, chain: str | None = None, output_dir: Path | None = None):
+def generate_html(
+    address: str,
+    chain: str | None = None,
+    output_dir: Path | None = None,
+    progress_cb: ProgressCallback | None = None,
+):
     """Generate the entry-point HTML for the given contract and return metadata."""
 
+    _report_progress(progress_cb, "Loading environment")
     _load_dotenv()
+    _report_progress(progress_cb, "Normalizing target")
     address, chain = _resolve_chain_and_address(address, chain)
     target = f"{chain}:{address}"
     global slither_object
+    _report_progress(progress_cb, "Fetching verified source", target=target)
+    export_root = Path("crytic-export") / "etherscan-contracts"
+    if export_root.exists():
+        prefix = f"{_normalize_address(address)}{chain.lower()}-"
+        has_cache = any(
+            entry.is_dir() and entry.name.lower().startswith(prefix)
+            for entry in export_root.iterdir()
+        )
+        _report_progress(
+            progress_cb,
+            "Source cache check",
+            cached=bool(has_cache),
+        )
+
+    stop_fetch = threading.Event()
+
+    def _fetch_heartbeat() -> None:
+        start = time.time()
+        while not stop_fetch.wait(2.0):
+            elapsed = int(time.time() - start)
+            _report_progress(
+                progress_cb,
+                "Fetching verified source",
+                target=target,
+                elapsed_seconds=elapsed,
+            )
+
+    heartbeat_thread = None
+    if progress_cb:
+        heartbeat_thread = threading.Thread(
+            target=_fetch_heartbeat, name="fetch-heartbeat", daemon=True
+        )
+        heartbeat_thread.start()
+
     slither_object = Slither(target, skip_analyze=False)
+    if heartbeat_thread:
+        stop_fetch.set()
+        heartbeat_thread.join(timeout=1.0)
+    _report_progress(progress_cb, "Compiler analysis completed")
 
+    _report_progress(progress_cb, "Resolving deployed contract")
     root_contracts = _resolve_root_contracts(address, chain)
-    data = build_entry_point_flows(root_contracts)
+    _report_progress(progress_cb, "Building entry point flows")
+    data = build_entry_point_flows(root_contracts, progress_cb=progress_cb)
 
+    _report_progress(progress_cb, "Indexing storage variables")
     storage_vars_map: Dict[str, Dict[str, Any]] = {}
     writers_index: Dict[str, List[str]] = {}
     for entry in data:
@@ -926,6 +1256,7 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
     )
 
     template_path = Path("template.html")
+    _report_progress(progress_cb, "Rendering template")
     template_html = template_path.read_text(encoding="utf-8")
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2)
@@ -959,6 +1290,7 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
 
     output_dir = output_dir or Path("src")
     output_dir.mkdir(parents=True, exist_ok=True)
+    _report_progress(progress_cb, "Writing output")
     hotkeys_src = Path(__file__).parent / "src" / "hotkeys.json"
     hotkeys_dst = output_dir / "hotkeys.json"
     if hotkeys_src.exists() and not hotkeys_dst.exists():
@@ -967,6 +1299,7 @@ def generate_html(address: str, chain: str | None = None, output_dir: Path | Non
     # Always rebuild the dashboard so template changes propagate immediately.
     # write_text already overwrites; avoid deleting first to preserve last-good file if generation fails mid-run.
     output_path.write_text(filled_html, encoding="utf-8")
+    _report_progress(progress_cb, "Output file written", path=str(output_path))
 
     contract_names = sorted({entry.get("contract", "")
                             for entry in data if entry.get("contract")})

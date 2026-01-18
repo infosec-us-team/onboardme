@@ -59,22 +59,6 @@
       z-index: 52;
     }
 
-    .preload-overlay {
-      position: fixed;
-      inset: 0;
-      background: #030511;
-      z-index: 9999;
-      opacity: 1;
-      visibility: visible;
-      transition: opacity 0.8s ease, visibility 0.8s ease;
-      pointer-events: all;
-    }
-
-    .preload-overlay.fade-out {
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-    }
 
     .outro-overlay {
       position: fixed;
@@ -132,6 +116,342 @@
       }
     }
 
+    .boot-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.08), rgba(4, 8, 18, 0.98));
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      z-index: 9996;
+      overflow: hidden;
+    }
+
+    .boot-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .boot-window {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      padding: 0;
+      font-family: 'JetBrains Mono', monospace;
+      color: #9fe7f5;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      animation: boot-flicker 1.8s infinite;
+    }
+
+    .boot-binary {
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      left: 0;
+      opacity: 0.35;
+      color: rgba(34, 211, 238, 0.6);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      letter-spacing: 0.12em;
+      white-space: pre;
+      pointer-events: none;
+      mix-blend-mode: screen;
+      animation: binary-shift 6s linear infinite;
+      mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.8) 10%, rgba(0,0,0,1) 60%, transparent 100%);
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .boot-particles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .boot-corner {
+      position: absolute;
+      z-index: 2;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(34, 211, 238, 0.65);
+      text-shadow: 0 0 8px rgba(6, 182, 212, 0.35);
+      pointer-events: none;
+      max-width: 320px;
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .boot-corner.top-left {
+      top: 24px;
+      left: 24px;
+      font-size: 9px;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .boot-corner.bottom-right {
+      bottom: 28px;
+      right: 28px;
+      font-size: 11px;
+      text-align: right;
+      max-height: none;
+      overflow: visible;
+    }
+
+    .boot-corner-line {
+      opacity: 0.6;
+      margin-bottom: 4px;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .boot-particle {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(34, 211, 238, 0.85);
+      box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
+      animation: particle-float 6s linear infinite;
+    }
+
+    .boot-content {
+      position: relative;
+      z-index: 1;
+      max-width: 900px;
+      text-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
+      padding: 0 10vw;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      height: 100%;
+    }
+
+    .boot-line {
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      opacity: 0.2;
+      transform: translateX(-6px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      letter-spacing: 0.1em;
+    }
+
+    .boot-line.active {
+      opacity: 1;
+      transform: translateX(0);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+
+    .boot-line.done {
+      opacity: 0.7;
+    }
+
+    .boot-line.error {
+      opacity: 1;
+      color: #f87171;
+    }
+
+    .boot-line::before {
+      content: '';
+      margin-right: 10px;
+    }
+
+    .boot-line.is-latest::before {
+      content: '>>>';
+      color: rgba(34, 211, 238, 0.8);
+      text-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
+    }
+
+    .boot-line.is-latest.error::before {
+      color: rgba(248, 113, 113, 0.9);
+      text-shadow: 0 0 6px rgba(248, 113, 113, 0.8);
+    }
+
+    .boot-text {
+      position: relative;
+      display: inline-block;
+    }
+
+    .boot-text.glitch::before,
+    .boot-text.glitch::after {
+      content: attr(data-text);
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    .boot-text.glitch::before {
+      color: rgba(34, 211, 238, 1);
+      transform: translate(2px, -2px);
+      animation: glitch-shift 1.1s infinite steps(6);
+    }
+
+    .boot-text.glitch::after {
+      color: rgba(255, 255, 255, 0.9);
+      transform: translate(-2px, 2px);
+      animation: glitch-shift 0.9s infinite steps(6);
+    }
+
+    .boot-text.glitch.glitch-a::before,
+    .boot-text.glitch.glitch-a::after {
+      animation-delay: -0.3s;
+      animation-duration: 0.85s;
+    }
+
+    .boot-text.glitch.glitch-b::before,
+    .boot-text.glitch.glitch-b::after {
+      animation-delay: -0.6s;
+      animation-duration: 1.25s;
+    }
+
+    .boot-text.glitch.glitch-c::before,
+    .boot-text.glitch.glitch-c::after {
+      animation-delay: -0.9s;
+      animation-duration: 1.5s;
+    }
+
+    .boot-scanline {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 0%, rgba(6, 182, 212, 0.18) 50%, transparent 100%);
+      opacity: 0.6;
+      animation: scanline 1.5s linear infinite;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
+    .boot-noise {
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.02) 0px,
+        rgba(255, 255, 255, 0.02) 1px,
+        transparent 2px,
+        transparent 4px
+      );
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    @keyframes scanline {
+      0% {
+        transform: translateY(-100%);
+      }
+      100% {
+        transform: translateY(100%);
+      }
+    }
+
+    @keyframes pulse-dot {
+      0% {
+        opacity: 0.4;
+      }
+      50% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0.4;
+      }
+    }
+
+    @keyframes boot-flicker {
+      0%, 100% {
+        opacity: 1;
+      }
+      45% {
+        opacity: 0.95;
+      }
+      50% {
+        opacity: 0.85;
+      }
+      55% {
+        opacity: 1;
+      }
+    }
+
+    @keyframes binary-shift {
+      0% {
+        transform: translateY(-10%);
+      }
+      100% {
+        transform: translateY(10%);
+      }
+    }
+
+
+    @keyframes particle-float {
+      0% {
+        transform: translateY(0);
+        opacity: 0;
+      }
+      20% {
+        opacity: 1;
+      }
+      80% {
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(-140px);
+        opacity: 0;
+      }
+    }
+
+    @keyframes glitch-shift {
+      0% {
+        clip-path: inset(0 0 80% 0);
+        transform: translate(3px, -2px);
+      }
+      25% {
+        clip-path: inset(10% 0 50% 0);
+        transform: translate(-3px, 2px);
+      }
+      50% {
+        clip-path: inset(35% 0 20% 0);
+        transform: translate(4px, 0);
+      }
+      75% {
+        clip-path: inset(55% 0 10% 0);
+        transform: translate(-4px, -2px);
+      }
+      100% {
+        clip-path: inset(0 0 65% 0);
+        transform: translate(2px, 2px);
+      }
+    }
+
+    .input-cloak {
+      opacity: 0;
+      filter: blur(6px);
+      transition: opacity 0.2s ease, filter 0.2s ease;
+    }
+
+    .page-fade {
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .page-fade.ready {
+      opacity: 1;
+    }
+
     ::selection {
       background: rgba(6, 182, 212, 0.3);
       color: #fff;
@@ -141,12 +461,10 @@
 </head>
 
 <body>
-  <div id="preload-overlay" class="preload-overlay" style="background:#030511;position:fixed;inset:0;z-index:9999;">
-  </div>
   <div id="root"></div>
 
   <script type="text/babel">
-    const {useState, useEffect, useRef, useImperativeHandle, forwardRef} = React;
+    const {useState, useEffect, useRef, useImperativeHandle, forwardRef, useMemo} = React;
     const THREE = window.THREE;
 
     // --- INLINE ICONS (Replaces Lucide dependency to fix UMD errors) ---
@@ -531,22 +849,100 @@
       const [isValid, setIsValid] = useState(true);
       const [validationMessage, setValidationMessage] = useState('INVALID CONTRACT ADDRESS FORMAT');
       const [isSubmitting, setIsSubmitting] = useState(false);
+      const [bootActive, setBootActive] = useState(false);
+      const [bootTimeline, setBootTimeline] = useState([]);
+      const [bootLog, setBootLog] = useState([]);
       const [isFadingOut, setIsFadingOut] = useState(false);
       const [isOutro, setIsOutro] = useState(false);
+      const [pageReady, setPageReady] = useState(false);
       const [cursorIdx, setCursorIdx] = useState(0);
       const inputRef = useRef(null);
       const fadeRef = useRef(null);
       const outroRef = useRef(null);
+      const streamRef = useRef(null);
+      const [binaryGrid, setBinaryGrid] = useState([]);
+      const particles = useMemo(() => {
+        const count = 90;
+        return Array.from({length: count}, (_, idx) => ({
+          id: `p-${idx}`,
+          x: Math.random() * 100,
+          y: Math.random() * 100,
+          delay: Math.random() * 4,
+          duration: 4 + Math.random() * 4,
+          size: Math.random() > 0.8 ? 3 : 2
+        }));
+      }, []);
+
+      const getBinaryDimensions = () => {
+        const ratio = Math.max(1, window.devicePixelRatio || 1);
+        const charWidth = 8 / ratio;
+        const charHeight = 16 / ratio;
+        const cols = Math.max(40, Math.floor(window.innerWidth / charWidth));
+        const rows = Math.max(14, Math.floor(window.innerHeight / charHeight));
+        return {rows, cols};
+      };
+
+      const generateBinaryGrid = (rows, cols) => {
+        const lines = [];
+        for (let i = 0; i < rows; i += 1) {
+          let line = '';
+          for (let j = 0; j < cols; j += 1) {
+            line += Math.random() > 0.5 ? '1' : '0';
+          }
+          lines.push({
+            text: line,
+            alpha: 0.15 + Math.random() * 0.75
+          });
+        }
+        return lines;
+      };
 
       useEffect(() => {
-        const overlay = document.getElementById('preload-overlay');
-        if (!overlay) return;
-        const timer = setTimeout(() => {
-          overlay.classList.add('fade-out');
-          const removeOverlay = () => overlay.remove();
-          overlay.addEventListener('transitionend', removeOverlay, {once: true});
-        }, 1000);
-        return () => clearTimeout(timer);
+        const raf = requestAnimationFrame(() => setPageReady(true));
+        return () => cancelAnimationFrame(raf);
+      }, []);
+
+      useEffect(() => {
+        const {rows, cols} = getBinaryDimensions();
+        setBinaryGrid(generateBinaryGrid(rows, cols));
+        const onResize = () => {
+          const dims = getBinaryDimensions();
+          setBinaryGrid(generateBinaryGrid(dims.rows, dims.cols));
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+      }, []);
+
+      useEffect(() => {
+        if (!bootActive) return undefined;
+        const timer = setInterval(() => {
+          setBinaryGrid((prev) => {
+            if (!prev.length) {
+              const dims = getBinaryDimensions();
+              return generateBinaryGrid(dims.rows, dims.cols);
+            }
+            return prev.map((line) => {
+              if (Math.random() < 0.35) {
+                const refreshed = generateBinaryGrid(1, line.text.length)[0];
+                return refreshed;
+              }
+              return {
+                text: line.text,
+                alpha: Math.max(0.08, Math.min(0.9, line.alpha + (Math.random() - 0.5) * 0.2))
+              };
+            });
+          });
+        }, 220);
+        return () => clearInterval(timer);
+      }, [bootActive]);
+
+      useEffect(() => {
+        return () => {
+          if (streamRef.current) {
+            streamRef.current.close();
+            streamRef.current = null;
+          }
+        };
       }, []);
 
       const parseInput = (raw) => {
@@ -589,9 +985,52 @@
         }
       };
 
+      const pushBootStep = (message, status = 'active', options = {}) => {
+        const text = (message || '').trim();
+        if (!text) return;
+        const {replaceLast = false, baseMessage = null} = options;
+        setBootTimeline((prev) => {
+          const next = [...prev];
+          if (replaceLast && next.length) {
+            const last = next[next.length - 1];
+            if (baseMessage && last.message.startsWith(baseMessage)) {
+              next[next.length - 1] = {id: last.id, message: text, status};
+              return next.slice(-5);
+            }
+          }
+          const last = next[next.length - 1];
+          if (last && last.message === text && last.status === status) {
+            return next;
+          }
+          next.push({id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, message: text, status});
+          return next.slice(-5);
+        });
+        setBootLog((prev) => {
+          const next = [...prev];
+          if (replaceLast && next.length) {
+            const last = next[next.length - 1];
+            if (baseMessage && last.message.startsWith(baseMessage)) {
+              next[next.length - 1] = {id: last.id, message: text, status};
+              return next.slice(-50);
+            }
+          }
+          const last = next[next.length - 1];
+          if (last && last.message === text && last.status === status) {
+            return next;
+          }
+          next.push({id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, message: text, status});
+          return next.slice(-50);
+        });
+      };
+
       const handleSearch = async (e) => {
         e.preventDefault();
         if (isSubmitting) return;
+
+        if (streamRef.current) {
+          streamRef.current.close();
+          streamRef.current = null;
+        }
 
         const parsed = parseInput(addressInput);
         if (!parsed) {
@@ -602,7 +1041,59 @@
 
         setIsSubmitting(true);
         setIsValid(true);
+        setBootActive(true);
+        setBootTimeline([]);
+        pushBootStep('Initializing session');
         try {
+          if (window.EventSource) {
+            const params = new URLSearchParams({address: parsed.address, chain: parsed.chain});
+            const stream = new EventSource(`/generate/stream?${params.toString()}`);
+            streamRef.current = stream;
+            stream.addEventListener('progress', (event) => {
+              try {
+                const payload = JSON.parse(event.data || '{}');
+                if (payload?.message) {
+                  let message = payload.message;
+                  let baseMessage = payload.message;
+                  const cached = payload?.cached;
+                  const elapsed = payload?.elapsed_seconds;
+                  if (payload.message === 'Source cache check' && cached !== undefined) {
+                    message = `${payload.message} (${cached ? 'cache hit' : 'cache miss'})`;
+                  }
+                  if (payload.message === 'Fetching verified source' && Number.isFinite(elapsed)) {
+                    message = `${payload.message} • ${elapsed}s`;
+                  }
+                  pushBootStep(message, 'active', {replaceLast: true, baseMessage});
+                }
+              } catch (_) {
+                pushBootStep('Processing update', 'active');
+              }
+            });
+            stream.addEventListener('done', (event) => {
+              try {
+                const payload = JSON.parse(event.data || '{}');
+                pushBootStep('Export complete', 'done');
+                stream.close();
+                streamRef.current = null;
+                startFadeAndRedirect(payload?.url || payload?.file || '/');
+              } catch (_) {
+                stream.close();
+                streamRef.current = null;
+                setBootActive(false);
+              }
+            });
+            stream.addEventListener('error', () => {
+              stream.close();
+              streamRef.current = null;
+              pushBootStep('Stream interrupted', 'error');
+              setIsValid(false);
+              setValidationMessage('FAILED TO REACH SERVER');
+              setIsSubmitting(false);
+              setBootActive(false);
+            });
+            return;
+          }
+
           const res = await fetch('/generate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -612,6 +1103,7 @@
           if (!res.ok) {
             setIsValid(false);
             setValidationMessage('SERVER REJECTED REQUEST');
+            setBootActive(false);
             return;
           }
 
@@ -620,13 +1112,16 @@
           if (!targetUrl) {
             setIsValid(false);
             setValidationMessage('UNEXPECTED SERVER RESPONSE');
+            setBootActive(false);
             return;
           }
+          pushBootStep('Export complete', 'done');
           startFadeAndRedirect(targetUrl);
         } catch (err) {
           console.error(err);
           setIsValid(false);
           setValidationMessage('FAILED TO REACH SERVER');
+          setBootActive(false);
         } finally {
           setIsSubmitting(false);
         }
@@ -639,8 +1134,66 @@
       return (
         <>
           <div ref={outroRef} className={`outro-overlay ${isOutro ? 'fade-in' : ''}`}></div>
+            <div className={`boot-overlay ${bootActive ? 'active' : ''}`}>
+              <div className="boot-scanline"></div>
+              <div className="boot-noise"></div>
+              <div className="boot-window">
+                <div className="boot-binary">
+                  {binaryGrid.map((line, idx) => (
+                    <div key={`bin-${idx}`} style={{opacity: line.alpha}}>{line.text}</div>
+                  ))}
+                </div>
+                <div className="boot-particles">
+                  {particles.map((particle) => (
+                    <span
+                      key={particle.id}
+                      className="boot-particle"
+                      style={{
+                        left: `${particle.x}%`,
+                        top: `${particle.y}%`,
+                        animationDelay: `${particle.delay}s`,
+                        animationDuration: `${particle.duration}s`,
+                        width: `${particle.size}px`,
+                        height: `${particle.size}px`
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="boot-corner top-left">
+                  {(bootLog.length ? bootLog : [{id: 'boot-wait', message: 'Awaiting server response'}]).slice(-50).map((step, idx) => (
+                    <div key={`tl-${step.id}-${idx}`} className="boot-corner-line">
+                      {step.message}
+                    </div>
+                  ))}
+                </div>
+                <div className="boot-corner bottom-right">
+                  {(bootLog.length ? bootLog : [{id: 'boot-wait', message: 'Awaiting server response'}]).slice(-50).map((step, idx) => (
+                    <div key={`br-${step.id}-${idx}`} className="boot-corner-line">
+                      {step.message}
+                    </div>
+                  ))}
+                </div>
+                <div className="boot-content">
+                  <div className="flex flex-col gap-3">
+                    {(bootTimeline.length ? bootTimeline : [{id: 'boot-wait', message: 'Awaiting server response', status: 'active'}]).map((step, idx, arr) => (
+                      <div
+                        key={step.id}
+                        className={`boot-line ${step.status} ${idx === arr.length - 1 ? 'is-latest' : ''}`}
+                      >
+                        <span
+                          className={`boot-text ${idx !== arr.length - 1 ? `glitch glitch-${idx % 3 === 0 ? 'a' : idx % 3 === 1 ? 'b' : 'c'}` : ''}`}
+                          data-text={step.message}
+                        >
+                          {step.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+          </div>
           <div
-            className="h-screen w-screen flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-100 overflow-hidden relative"
+            className={`h-screen w-screen flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-100 overflow-hidden relative page-fade ${pageReady ? 'ready' : ''}`}
             onClick={() => inputRef.current?.focus()}
           >
             <div className="fixed inset-0 z-0 bg-[#040812]">
@@ -660,7 +1213,7 @@
 
               <div className="w-full flex flex-col items-center justify-center gap-8">
                 <form onSubmit={handleSearch} className="w-full relative group h-16 flex items-center justify-center">
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+                  <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-0 ${bootActive ? 'input-cloak' : ''}`}>
                     <span className={`font-display font-bold uppercase tracking-[0.25em] text-2xl text-glow whitespace-pre transition-colors duration-200 ${isValid ? 'text-cyan-100' : 'text-red-400'}`}>
                       {addressInput.slice(0, cursorIdx)}
                     </span>
