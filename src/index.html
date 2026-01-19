@@ -122,7 +122,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.08), rgba(4, 8, 18, 0.98));
+      background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.08), rgba(4, 8, 18, 0.68));
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.25s ease;
@@ -131,7 +131,7 @@
     }
 
     .boot-overlay.active {
-      opacity: 1;
+      opacity: 0.8;
       pointer-events: all;
     }
 
@@ -155,7 +155,7 @@
       inset: 0;
       width: 100vw;
       left: 0;
-      opacity: 0.15;
+      opacity: 0.2;
       color: rgba(34, 211, 238, 0.6);
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
@@ -180,7 +180,6 @@
 
     .boot-corner {
       position: absolute;
-      opacity: 0.3;
       z-index: 2;
       font-family: 'JetBrains Mono', monospace;
       text-transform: uppercase;
@@ -188,7 +187,7 @@
       color: rgba(34, 211, 238, 0.65);
       text-shadow: 0 0 8px rgba(6, 182, 212, 0.35);
       pointer-events: none;
-      max-width: 320px;
+      max-width: 100%;
       max-height: none;
       overflow: visible;
       padding-right: 0;
@@ -197,7 +196,8 @@
     .boot-corner.top-left {
       top: 24px;
       left: 24px;
-      font-size: 9px;
+      opacity: 0.7;
+      font-size: 30px;
       max-height: none;
       overflow: visible;
     }
@@ -206,6 +206,7 @@
       bottom: 28px;
       right: 28px;
       font-size: 11px;
+      opacity: 0.5;
       text-align: right;
       max-height: none;
       overflow: visible;
@@ -223,116 +224,17 @@
       width: 2px;
       height: 2px;
       border-radius: 999px;
-      background: rgba(34, 211, 238, 0.85);
+      background: rgba(34, 211, 238, 0.95);
       box-shadow: 0 0 10px rgba(34, 211, 238, 0.9);
       animation: particle-float 6s linear infinite;
     }
 
-    .boot-content {
-      position: relative;
-      z-index: 1;
-      max-width: 900px;
-      text-shadow: 0 0 12px rgba(6, 182, 212, 0.35);
-      padding: 0 10vw;
-      margin: auto;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      height: 100%;
-    }
-
-    .boot-line {
-      font-size: 20px;
-      display: flex;
-      align-items: center;
-      opacity: 0.2;
-      transform: translateX(-6px);
-      transition: opacity 0.2s ease, transform 0.2s ease;
-      letter-spacing: 0.1em;
-    }
-
-    .boot-line.active {
-      opacity: 1;
-      transform: translateX(0);
-      font-weight: 700;
-      letter-spacing: 0.12em;
-    }
-
-    .boot-line.done {
-      opacity: 0.7;
-    }
-
-    .boot-line.error {
-      opacity: 1;
-      color: #f87171;
-    }
-
-    .boot-line::before {
-      content: '';
-      margin-right: 10px;
-    }
-
-    .boot-line.is-latest::before {
-      content: '>>>';
-      color: rgba(34, 211, 238, 0.8);
-      text-shadow: 0 0 6px rgba(34, 211, 238, 0.6);
-    }
-
-    .boot-line.is-latest.error::before {
-      color: rgba(248, 113, 113, 0.9);
-      text-shadow: 0 0 6px rgba(248, 113, 113, 0.8);
-    }
-
-    .boot-text {
-      position: relative;
-      display: inline-block;
-    }
-
-    .boot-text.glitch::before,
-    .boot-text.glitch::after {
-      content: attr(data-text);
-      position: absolute;
-      left: 0;
-      top: 0;
-      opacity: 0.7;
-      pointer-events: none;
-    }
-
-    .boot-text.glitch::before {
-      color: rgba(34, 211, 238, 1);
-      transform: translate(2px, -2px);
-      animation: glitch-shift 1.1s infinite steps(6);
-    }
-
-    .boot-text.glitch::after {
-      color: rgba(255, 255, 255, 0.9);
-      transform: translate(-2px, 2px);
-      animation: glitch-shift 0.9s infinite steps(6);
-    }
-
-    .boot-text.glitch.glitch-a::before,
-    .boot-text.glitch.glitch-a::after {
-      animation-delay: -0.3s;
-      animation-duration: 0.85s;
-    }
-
-    .boot-text.glitch.glitch-b::before,
-    .boot-text.glitch.glitch-b::after {
-      animation-delay: -0.6s;
-      animation-duration: 1.25s;
-    }
-
-    .boot-text.glitch.glitch-c::before,
-    .boot-text.glitch.glitch-c::after {
-      animation-delay: -0.9s;
-      animation-duration: 1.5s;
-    }
 
     .boot-scanline {
       position: absolute;
       inset: 0;
       background: linear-gradient(180deg, transparent 0%, rgba(6, 182, 212, 0.18) 50%, transparent 100%);
-      opacity: 0.6;
+      opacity: 0.2;
       animation: scanline 1.5s linear infinite;
       pointer-events: none;
       mix-blend-mode: screen;
@@ -348,7 +250,7 @@
         transparent 2px,
         transparent 4px
       );
-      opacity: 0.35;
+      opacity: 0.2;
       pointer-events: none;
     }
 
@@ -412,29 +314,6 @@
       100% {
         transform: translateY(-140px);
         opacity: 0;
-      }
-    }
-
-    @keyframes glitch-shift {
-      0% {
-        clip-path: inset(0 0 80% 0);
-        transform: translate(3px, -2px);
-      }
-      25% {
-        clip-path: inset(10% 0 50% 0);
-        transform: translate(-3px, 2px);
-      }
-      50% {
-        clip-path: inset(35% 0 20% 0);
-        transform: translate(4px, 0);
-      }
-      75% {
-        clip-path: inset(55% 0 10% 0);
-        transform: translate(-4px, -2px);
-      }
-      100% {
-        clip-path: inset(0 0 65% 0);
-        transform: translate(2px, 2px);
       }
     }
 
@@ -606,7 +485,7 @@
     };
 
     // --- THREE.JS BACKGROUND COMPONENT ---
-    const ThreeBackground = forwardRef((props, ref) => {
+    const ThreeBackground = forwardRef(({bootActive}, ref) => {
       const mountRef = useRef(null);
       const animationState = useRef({
         normalCubesMesh: null, normalCubeData: [],
@@ -616,9 +495,59 @@
         bgEthMesh: null, bgEthData: [], orbitRing: null,
         camera: null, group: null, renderer: null, scene: null,
         lasers: [], laserTexture: null, laserGeometry: null, laserMaterialTemplate: null,
+        freezeCubes: false, time: 0, freezeTime: 0, distortBlend: 0,
       });
+      const lastBootActive = useRef(false);
 
       useImperativeHandle(ref, () => ({}));
+
+      const setInstancedDistortion = (data, enabled) => {
+        data.forEach((d) => {
+          if (enabled) {
+            d.expandTarget = new THREE.Vector3(
+              1.6 + Math.random() * 1.2,
+              1.6 + Math.random() * 1.2,
+              1.6 + Math.random() * 1.2
+            );
+            d.expandSpeed = 0.05 + Math.random() * 0.05;
+          } else {
+            d.expandTarget = new THREE.Vector3(1, 1, 1);
+            d.expandSpeed = 0.08;
+          }
+        });
+      };
+
+      const setFgCubeDistortion = (cube, enabled) => {
+        if (!cube) return;
+        if (enabled) {
+          cube.userData.expandTarget = new THREE.Vector3(
+            1.35 + Math.random() * 0.8,
+            1.35 + Math.random() * 0.8,
+            1.35 + Math.random() * 0.8
+          );
+          cube.userData.expandSpeed = 0.06 + Math.random() * 0.05;
+        } else {
+          cube.userData.expandTarget = new THREE.Vector3(1, 1, 1);
+          cube.userData.expandSpeed = 0.1;
+        }
+      };
+
+      useEffect(() => {
+        const state = animationState.current;
+        state.freezeCubes = !!bootActive;
+        if (bootActive && !lastBootActive.current) {
+          state.freezeTime = state.time || 0;
+          setInstancedDistortion(state.normalCubeData, true);
+          setInstancedDistortion(state.vulnCubeData, true);
+          setFgCubeDistortion(state.fgCube, true);
+        }
+        if (!bootActive && lastBootActive.current) {
+          setInstancedDistortion(state.normalCubeData, false);
+          setInstancedDistortion(state.vulnCubeData, false);
+          setFgCubeDistortion(state.fgCube, false);
+        }
+        lastBootActive.current = bootActive;
+      }, [bootActive]);
 
       useEffect(() => {
         if (!mountRef.current) return;
@@ -641,7 +570,7 @@
           for (let i = 0; i < count * 3; i += 3) {const r = radiusFn(); const theta = Math.random() * Math.PI * 2; const phi = Math.acos(2 * Math.random() - 1); posArray[i] = r * Math.sin(phi) * Math.cos(theta); posArray[i + 1] = r * Math.sin(phi) * Math.sin(theta); posArray[i + 2] = r * Math.cos(phi);}
           geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
           const mat = new THREE.PointsMaterial({size, map: particleCircleTexture, color, transparent: true, opacity, depthWrite: false, alphaTest: 0.01});
-          const mesh = new THREE.Points(geo, mat); group.add(mesh); particleMeshes.push({mesh, geo, mat});
+          const mesh = new THREE.Points(geo, mat); group.add(mesh); particleMeshes.push({mesh, geo, mat, basePositions: posArray.slice()});
         };
         makeParticleLayer(4000, () => 15 + Math.random() * 10, 0x22d3ee, 0.09, 0.45);
         makeParticleLayer(4000, () => 26 + Math.random() * 1, 0x22d3ee, 0.09, 0.45);
@@ -679,7 +608,8 @@
           }
           if (!validPosition) {const r = 40 + Math.random() * 10; const theta = Math.random() * Math.PI * 2; pos.set(r * Math.cos(theta), r * Math.sin(theta), (Math.random() * 70) - 50);}
           const rot = new THREE.Vector3(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-          const cData = {pos: pos, speed: 0.02 + Math.random() * 0.05, rot: rot, rotSpeed: new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02), scale: scale};
+          const basePos = pos.clone();
+          const cData = {pos: basePos.clone(), basePos, speed: 0.02 + Math.random() * 0.05, rot: rot, rotSpeed: new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02), scale: scale, expandScale: new THREE.Vector3(1, 1, 1), expandTarget: new THREE.Vector3(1, 1, 1), expandSpeed: 0.04};
           allOccupiedPositions.push({pos, scale});
           if (Math.random() < 0.25) vulnCubeData.push(cData); else normalCubeData.push(cData);
         }
@@ -719,6 +649,7 @@
           escapingCoinsData.push({mesh, angle: Math.random() * Math.PI * 2, speed: 0.03 + Math.random() * 0.05, radius: 0.4 + Math.random() * 0.8, zFreq: 1.5 + Math.random() * 2.5, zPhase: Math.random() * Math.PI * 2, rotSpeed: new THREE.Vector3(Math.random() * 0.2, Math.random() * 0.2, Math.random() * 0.2)});
         }
         animationState.current.escapingCoins = escapingCoinsData; scene.add(fgCube); animationState.current.fgCube = fgCube;
+        if (animationState.current.freezeCubes) setFgCubeDistortion(fgCube, true);
 
         const fgCoinGroup = new THREE.Group();
         const mainCoin = new THREE.Mesh(coinGeo, fgMatEth); mainCoin.rotation.x = Math.PI / 2; fgCoinGroup.add(mainCoin);
@@ -733,21 +664,86 @@
         animationState.current.laserMaterialTemplate = new THREE.MeshBasicMaterial({map: laserTexture, transparent: true, opacity: 0.8, color: 0xffffff, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending});
 
         let time = 0; let animationFrameId;
+        const tempPos = new THREE.Vector3();
+        const warpedPos = new THREE.Vector3();
+        const lensRadius = 26;
+        const lensStrength = 1.2;
+        const warpAmplitude = 3.0;
+        const warpFrequency = 0.09;
+        const applyDistortion = (source, out, t) => {
+          out.copy(source);
+          const nx = Math.sin(out.y * warpFrequency + t * 1.1) + Math.cos(out.z * (warpFrequency * 1.3) - t * 0.9);
+          const ny = Math.sin(out.z * (warpFrequency * 0.9) + t * 1.4) + Math.cos(out.x * (warpFrequency * 1.1) + t * 0.7);
+          const nz = Math.sin(out.x * (warpFrequency * 1.2) - t * 1.2) + Math.cos(out.y * (warpFrequency * 0.8) + t * 0.6);
+          out.x += nx * warpAmplitude * 0.85;
+          out.y += ny * warpAmplitude * 0.85;
+          out.z += nz * warpAmplitude * 0.6;
+          const r = Math.sqrt(out.x * out.x + out.y * out.y);
+          const lens = 1 + lensStrength * Math.exp(-(r * r) / (lensRadius * lensRadius));
+          out.x *= lens;
+          out.y *= lens;
+          out.z += Math.sin(r * 0.12 - t * 1.5) * lensStrength * 0.9;
+          return out;
+        };
         const animate = () => {
-          animationFrameId = requestAnimationFrame(animate); time += 0.002;
+          animationFrameId = requestAnimationFrame(animate); time += 0.002; animationState.current.time = time;
+          const state = animationState.current;
+          const targetBlend = state.freezeCubes ? 1 : 0;
+          state.distortBlend += (targetBlend - state.distortBlend) * 0.08;
+          if (Math.abs(targetBlend - state.distortBlend) < 0.001) state.distortBlend = targetBlend;
+          const distortBlend = state.distortBlend;
+          const distortActive = distortBlend > 0.001;
           sphere.rotation.x += 0.001; sphere.rotation.y += 0.002; core.rotation.x -= 0.002; core.rotation.y -= 0.004;
           ring1.rotation.x = Math.PI / 2 + Math.sin(time) * 0.2; ring1.rotation.y += 0.002; ring2.rotation.x += 0.003; ring2.rotation.y = Math.sin(time * 0.5) * 0.2; ring3.rotation.z -= 0.001; ring3.rotation.x = Math.sin(time * 0.2) * 0.1;
-          animationState.current.particleMeshes?.forEach(({mesh}) => {mesh.rotation.y += 0.0005;});
+          animationState.current.particleMeshes?.forEach(({mesh, basePositions}) => {
+            const positions = mesh.geometry.attributes.position;
+            const arr = positions.array;
+            const t = (state.freezeCubes ? state.freezeTime : time) * 4;
+            for (let i = 0; i < basePositions.length; i += 3) {
+              if (distortActive) {
+                tempPos.set(basePositions[i], basePositions[i + 1], basePositions[i + 2]);
+                applyDistortion(tempPos, warpedPos, t);
+                arr[i] = basePositions[i] + (warpedPos.x - basePositions[i]) * distortBlend;
+                arr[i + 1] = basePositions[i + 1] + (warpedPos.y - basePositions[i + 1]) * distortBlend;
+                arr[i + 2] = basePositions[i + 2] + (warpedPos.z - basePositions[i + 2]) * distortBlend;
+              } else {
+                arr[i] = basePositions[i];
+                arr[i + 1] = basePositions[i + 1];
+                arr[i + 2] = basePositions[i + 2];
+              }
+            }
+            positions.needsUpdate = true;
+            mesh.rotation.y += 0.0005;
+          });
 
           const updateCubes = (mesh, data) => {
             if (!mesh) return;
+            const freezeCubes = animationState.current.freezeCubes;
+            const t = (freezeCubes ? animationState.current.freezeTime : time) * 4;
             for (let i = 0; i < data.length; i++) {
-              const d = data[i]; d.pos.z += d.speed; if (d.pos.z > 30) d.pos.z = -50 - Math.random() * 20;
-              d.rot.x += d.rotSpeed.x; d.rot.y += d.rotSpeed.y; d.rot.z += d.rotSpeed.z;
+              const d = data[i];
+              if (!freezeCubes) {
+                d.basePos.z += d.speed; if (d.basePos.z > 30) d.basePos.z = -50 - Math.random() * 20;
+                d.rot.x += d.rotSpeed.x; d.rot.y += d.rotSpeed.y; d.rot.z += d.rotSpeed.z;
+              }
+              if (distortActive) {
+                applyDistortion(d.basePos, warpedPos, t);
+                d.pos.lerpVectors(d.basePos, warpedPos, distortBlend);
+              } else {
+                d.pos.copy(d.basePos);
+              }
+              if (d.expandScale && d.expandTarget) {
+                d.expandScale.lerp(d.expandTarget, d.expandSpeed || 0.05);
+              }
               let depthScale = 1.0; if (d.pos.z < -40) depthScale = THREE.MathUtils.smoothstep(d.pos.z, -80, -40);
               let proximityScale = 1.0; if (d.pos.z > 5) {const distFactor = Math.max(0, (d.pos.z - 5) / 20); proximityScale = 1.0 + (distFactor * 4.0);}
-              const finalScale = d.scale * depthScale * proximityScale;
-              dummy.position.copy(d.pos); dummy.rotation.setFromVector3(d.rot); dummy.scale.set(finalScale, finalScale, finalScale); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
+              const baseScale = d.scale * depthScale * proximityScale;
+              const expandScale = d.expandScale || new THREE.Vector3(1, 1, 1);
+              dummy.position.copy(d.pos);
+              dummy.rotation.setFromVector3(d.rot);
+              dummy.scale.set(baseScale * expandScale.x, baseScale * expandScale.y, baseScale * expandScale.z);
+              dummy.updateMatrix();
+              mesh.setMatrixAt(i, dummy.matrix);
             }
             mesh.instanceMatrix.needsUpdate = true;
           };
@@ -771,7 +767,11 @@
 
           orbitRing.rotation.z -= 0.005;
           // REVERTED: Continuous spin for main cube
-          if (animationState.current.fgCube) {animationState.current.fgCube.rotation.x += 0.005; animationState.current.fgCube.rotation.y += 0.01;}
+          if (animationState.current.fgCube && !animationState.current.freezeCubes) {animationState.current.fgCube.rotation.x += 0.005; animationState.current.fgCube.rotation.y += 0.01;}
+          if (animationState.current.fgCube?.userData?.expandTarget) {
+            const cube = animationState.current.fgCube;
+            cube.scale.lerp(cube.userData.expandTarget, cube.userData.expandSpeed || 0.08);
+          }
           if (animationState.current.fgCoin && animationState.current.fgCube) {
             const grp = animationState.current.fgCoin; grp.position.copy(animationState.current.fgCube.position); grp.rotation.copy(animationState.current.fgCube.rotation);
             grp.children.forEach((child, idx) => {if (idx === 0) child.rotation.z += 0.01; if (idx > 0) {child.rotation.x += 0.02; child.rotation.y += 0.03; child.position.y += Math.sin(time * 3 + idx) * 0.005;} });
@@ -851,7 +851,6 @@
       const [validationMessage, setValidationMessage] = useState('INVALID CONTRACT ADDRESS FORMAT');
       const [isSubmitting, setIsSubmitting] = useState(false);
       const [bootActive, setBootActive] = useState(false);
-      const [bootTimeline, setBootTimeline] = useState([]);
       const [bootLog, setBootLog] = useState([]);
       const [isFadingOut, setIsFadingOut] = useState(false);
       const [isOutro, setIsOutro] = useState(false);
@@ -990,22 +989,6 @@
         const text = (message || '').trim();
         if (!text) return;
         const {replaceLast = false, baseMessage = null} = options;
-        setBootTimeline((prev) => {
-          const next = [...prev];
-          if (replaceLast && next.length) {
-            const last = next[next.length - 1];
-            if (baseMessage && last.message.startsWith(baseMessage)) {
-              next[next.length - 1] = {id: last.id, message: text, status};
-              return next.slice(-5);
-            }
-          }
-          const last = next[next.length - 1];
-          if (last && last.message === text && last.status === status) {
-            return next;
-          }
-          next.push({id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, message: text, status});
-          return next.slice(-5);
-        });
         setBootLog((prev) => {
           const next = [...prev];
           if (replaceLast && next.length) {
@@ -1043,7 +1026,6 @@
         setIsSubmitting(true);
         setIsValid(true);
         setBootActive(true);
-        setBootTimeline([]);
         pushBootStep('Initializing session');
         try {
           if (window.EventSource) {
@@ -1076,7 +1058,8 @@
                 pushBootStep('Export complete', 'done');
                 stream.close();
                 streamRef.current = null;
-                startFadeAndRedirect(payload?.url || payload?.file || '/');
+                const targetUrl = payload?.url || payload?.file || '/';
+                startFadeAndRedirect(targetUrl);
               } catch (_) {
                 stream.close();
                 streamRef.current = null;
@@ -1174,23 +1157,6 @@
                     </div>
                   ))}
                 </div>
-                <div className="boot-content">
-                  <div className="flex flex-col gap-3">
-                    {(bootTimeline.length ? bootTimeline : [{id: 'boot-wait', message: 'Awaiting server response', status: 'active'}]).map((step, idx, arr) => (
-                      <div
-                        key={step.id}
-                        className={`boot-line ${step.status} ${idx === arr.length - 1 ? 'is-latest' : ''}`}
-                      >
-                        <span
-                          className={`boot-text ${idx !== arr.length - 1 ? `glitch glitch-${idx % 3 === 0 ? 'a' : idx % 3 === 1 ? 'b' : 'c'}` : ''}`}
-                          data-text={step.message}
-                        >
-                          {step.message}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
           </div>
           <div
@@ -1198,7 +1164,7 @@
             onClick={() => inputRef.current?.focus()}
           >
             <div className="fixed inset-0 z-0 bg-[#040812]">
-              <ThreeBackground />
+              <ThreeBackground bootActive={bootActive} />
               <div className="absolute inset-0 bg-gradient-to-t from-[#040812] via-transparent to-[#040812a1]"></div>
               <div className="absolute inset-0 bg-gradient-to-r from-[#040812] via-transparent to-[#040812]"></div>
             </div>
