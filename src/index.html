@@ -131,7 +131,7 @@
     }
 
     .boot-overlay.active {
-      opacity: 0.8;
+      opacity: 0.4;
       pointer-events: all;
     }
 
@@ -193,20 +193,11 @@
       padding-right: 0;
     }
 
-    .boot-corner.top-left {
-      top: 24px;
-      left: 24px;
-      opacity: 0.7;
-      font-size: 30px;
-      max-height: none;
-      overflow: visible;
-    }
-
     .boot-corner.bottom-right {
       bottom: 28px;
       right: 28px;
       font-size: 11px;
-      opacity: 0.5;
+      opacity: 0.9;
       text-align: right;
       max-height: none;
       overflow: visible;
@@ -495,7 +486,7 @@
         bgEthMesh: null, bgEthData: [], orbitRing: null,
         camera: null, group: null, renderer: null, scene: null,
         lasers: [], laserTexture: null, laserGeometry: null, laserMaterialTemplate: null,
-        freezeCubes: false, time: 0, freezeTime: 0, distortBlend: 0,
+        freezeCubes: false, time: 0, freezeTime: 0, distortBlend: 0, cubeDistortBlend: 0,
       });
       const lastBootActive = useRef(false);
 
@@ -505,9 +496,9 @@
         data.forEach((d) => {
           if (enabled) {
             d.expandTarget = new THREE.Vector3(
-              1.6 + Math.random() * 1.2,
-              1.6 + Math.random() * 1.2,
-              1.6 + Math.random() * 1.2
+              1.15 + Math.random() * 0.25,
+              1.15 + Math.random() * 0.25,
+              1.15 + Math.random() * 0.25
             );
             d.expandSpeed = 0.05 + Math.random() * 0.05;
           } else {
@@ -517,13 +508,44 @@
         });
       };
 
+      const setCubeOpacity = (opacity) => {
+        const {normalCubeMaterial, cubeMaterials} = animationState.current;
+        if (normalCubeMaterial) {
+          normalCubeMaterial.opacity = opacity;
+          normalCubeMaterial.needsUpdate = true;
+        }
+        if (cubeMaterials?.length) {
+          cubeMaterials.forEach((mat) => {
+            if (!mat) return;
+            const baseOpacity = mat.userData?.baseOpacity;
+            mat.opacity = typeof baseOpacity === 'number' ? opacity : opacity;
+            mat.needsUpdate = true;
+          });
+        }
+      };
+
+      const restoreCubeOpacity = () => {
+        const {normalCubeMaterial, cubeMaterials} = animationState.current;
+        if (normalCubeMaterial?.userData?.baseOpacity != null) {
+          normalCubeMaterial.opacity = normalCubeMaterial.userData.baseOpacity;
+          normalCubeMaterial.needsUpdate = true;
+        }
+        if (cubeMaterials?.length) {
+          cubeMaterials.forEach((mat) => {
+            if (!mat || mat.userData?.baseOpacity == null) return;
+            mat.opacity = mat.userData.baseOpacity;
+            mat.needsUpdate = true;
+          });
+        }
+      };
+
       const setFgCubeDistortion = (cube, enabled) => {
         if (!cube) return;
         if (enabled) {
           cube.userData.expandTarget = new THREE.Vector3(
-            1.35 + Math.random() * 0.8,
-            1.35 + Math.random() * 0.8,
-            1.35 + Math.random() * 0.8
+            1.1 + Math.random() * 0.2,
+            1.1 + Math.random() * 0.2,
+            1.1 + Math.random() * 0.2
           );
           cube.userData.expandSpeed = 0.06 + Math.random() * 0.05;
         } else {
@@ -540,11 +562,13 @@
           setInstancedDistortion(state.normalCubeData, true);
           setInstancedDistortion(state.vulnCubeData, true);
           setFgCubeDistortion(state.fgCube, true);
+          setCubeOpacity(0.5);
         }
         if (!bootActive && lastBootActive.current) {
           setInstancedDistortion(state.normalCubeData, false);
           setInstancedDistortion(state.vulnCubeData, false);
           setFgCubeDistortion(state.fgCube, false);
+          restoreCubeOpacity();
         }
         lastBootActive.current = bootActive;
       }, [bootActive]);
@@ -584,9 +608,14 @@
 
         const cubeGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
         const normalCubeMaterial = new THREE.MeshBasicMaterial({map: binaryTexture, transparent: true, opacity: 0.8, color: 0xffffff, depthWrite: false, side: THREE.DoubleSide});
+        normalCubeMaterial.userData.baseOpacity = normalCubeMaterial.opacity;
         const standardMat = new THREE.MeshBasicMaterial({map: binaryTexture, transparent: true, opacity: 0.8, side: THREE.DoubleSide, color: 0xffffff, depthWrite: false});
+        standardMat.userData.baseOpacity = standardMat.opacity;
         const vulnerableMat = new THREE.MeshBasicMaterial({map: vulnTexture, transparent: true, opacity: 0.8, side: THREE.DoubleSide, color: 0xffffff, depthWrite: false, opacity: 1.0});
+        vulnerableMat.userData.baseOpacity = vulnerableMat.opacity;
         const vulnMatArray = [standardMat, standardMat, standardMat, standardMat, vulnerableMat, standardMat];
+        animationState.current.normalCubeMaterial = normalCubeMaterial;
+        animationState.current.cubeMaterials = Array.from(new Set(vulnMatArray));
 
         const totalCubes = 200;
         const normalCubesMesh = new THREE.InstancedMesh(cubeGeometry, normalCubeMaterial, totalCubes);
@@ -693,6 +722,11 @@
           if (Math.abs(targetBlend - state.distortBlend) < 0.001) state.distortBlend = targetBlend;
           const distortBlend = state.distortBlend;
           const distortActive = distortBlend > 0.001;
+          const cubeTargetBlend = state.freezeCubes ? 0 : distortBlend;
+          state.cubeDistortBlend += (cubeTargetBlend - state.cubeDistortBlend) * 0.08;
+          if (Math.abs(cubeTargetBlend - state.cubeDistortBlend) < 0.001) state.cubeDistortBlend = cubeTargetBlend;
+          const cubeDistortBlend = state.cubeDistortBlend;
+          const cubeDistortActive = cubeDistortBlend > 0.001;
           sphere.rotation.x += 0.001; sphere.rotation.y += 0.002; core.rotation.x -= 0.002; core.rotation.y -= 0.004;
           ring1.rotation.x = Math.PI / 2 + Math.sin(time) * 0.2; ring1.rotation.y += 0.002; ring2.rotation.x += 0.003; ring2.rotation.y = Math.sin(time * 0.5) * 0.2; ring3.rotation.z -= 0.001; ring3.rotation.x = Math.sin(time * 0.2) * 0.1;
           animationState.current.particleMeshes?.forEach(({mesh, basePositions}) => {
@@ -726,9 +760,9 @@
                 d.basePos.z += d.speed; if (d.basePos.z > 30) d.basePos.z = -50 - Math.random() * 20;
                 d.rot.x += d.rotSpeed.x; d.rot.y += d.rotSpeed.y; d.rot.z += d.rotSpeed.z;
               }
-              if (distortActive) {
+              if (cubeDistortActive) {
                 applyDistortion(d.basePos, warpedPos, t);
-                d.pos.lerpVectors(d.basePos, warpedPos, distortBlend);
+                d.pos.lerpVectors(d.basePos, warpedPos, cubeDistortBlend);
               } else {
                 d.pos.copy(d.basePos);
               }
@@ -1141,13 +1175,6 @@
                         height: `${particle.size}px`
                       }}
                     />
-                  ))}
-                </div>
-                <div className="boot-corner top-left">
-                  {(bootLog.length ? bootLog : [{id: 'boot-wait', message: 'Awaiting server response'}]).slice(-50).map((step, idx) => (
-                    <div key={`tl-${step.id}-${idx}`} className="boot-corner-line">
-                      {step.message}
-                    </div>
                   ))}
                 </div>
                 <div className="boot-corner bottom-right">
