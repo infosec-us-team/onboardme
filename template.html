@@ -186,6 +186,28 @@
       font-weight: 600;
     }
 
+    .function-link {
+      background: none;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      line-height: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .function-link:hover {
+      color: #22d3ee;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .function-link:focus,
+    .function-link:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+
     .token-constant {
       color: #fb923c;
     }
@@ -383,6 +405,25 @@
     const normalizeId = (text, suffix = '') => {
       const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
       return suffix ? `${base}_${suffix}` : base;
+    };
+
+    const baseFunctionName = (text = '') => {
+      const trimmed = (text || '').trim();
+      if (!trimmed) return '';
+      const withoutContract = trimmed.split('.').pop() || trimmed;
+      return withoutContract.split('(')[0].trim();
+    };
+
+    const normalizeFunctionKey = (text = '') => baseFunctionName(text).toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+    const parseSignatureArity = (signature = '') => {
+      const openIdx = signature.indexOf('(');
+      if (openIdx === -1) return null;
+      const closeIdx = signature.indexOf(')', openIdx + 1);
+      if (closeIdx === -1) return null;
+      const inner = signature.slice(openIdx + 1, closeIdx).trim();
+      if (!inner) return 0;
+      return inner.split(',').map((part) => part.trim()).filter(Boolean).length;
     };
 
     const hashString = (value = '') => {
@@ -856,11 +897,167 @@
             </div>
         `;
 
-    const renderCodeBlock = (code) => {
+    const renderCodeBlock = (code, functionInfo = null) => {
       const lineHeight = 'var(--code-line-height, 14px)';
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+      const functionNameArityMap = functionInfo?.nameArityMap || new Map();
+      const uniqueFunctionNames = functionInfo?.uniqueNames || new Set();
 
-      const highlightLine = (line) => {
+      const getCallArityFromLines = (lines, lineIndex, fromIndex) => {
+        let lineIdx = lineIndex;
+        let i = fromIndex;
+        let inSingle = false;
+        let inDouble = false;
+        let inTemplate = false;
+        let inBlockComment = false;
+        let escape = false;
+        const nextChar = () => {
+          while (lineIdx < lines.length) {
+            const line = lines[lineIdx];
+            if (i >= line.length) {
+              lineIdx += 1;
+              i = 0;
+              continue;
+            }
+            return line[i++];
+          }
+          return null;
+        };
+
+        const peekChar = () => {
+          if (lineIdx >= lines.length) return null;
+          const line = lines[lineIdx];
+          if (i >= line.length) return '\n';
+          return line[i];
+        };
+
+        const skipWhitespaceAndComments = () => {
+          let ch = peekChar();
+          while (ch !== null) {
+            if (inBlockComment) {
+              const next = nextChar();
+              if (next === '*' && peekChar() === '/') {
+                nextChar();
+                inBlockComment = false;
+              }
+              ch = peekChar();
+              continue;
+            }
+            if (ch === '\n' || (ch !== null && /\s/.test(ch))) {
+              nextChar();
+              ch = peekChar();
+              continue;
+            }
+            if (ch === '/' && lines[lineIdx]?.[i + 1] === '/') {
+              // Skip rest of line
+              lineIdx += 1;
+              i = 0;
+              ch = peekChar();
+              continue;
+            }
+            if (ch === '/' && lines[lineIdx]?.[i + 1] === '*') {
+              nextChar();
+              nextChar();
+              inBlockComment = true;
+              ch = peekChar();
+              continue;
+            }
+            break;
+          }
+          return ch;
+        };
+
+        const first = skipWhitespaceAndComments();
+        if (first !== '(') return null;
+        nextChar();
+
+        let depth = 1;
+        let count = 0;
+        let sawToken = false;
+
+        while (true) {
+          const ch = nextChar();
+          if (ch === null) return null;
+          if (escape) {
+            escape = false;
+            continue;
+          }
+          if (inBlockComment) {
+            if (ch === '*' && peekChar() === '/') {
+              nextChar();
+              inBlockComment = false;
+            }
+            continue;
+          }
+          if (inSingle) {
+            if (ch === "\\") escape = true;
+            else if (ch === "'") inSingle = false;
+            continue;
+          }
+          if (inDouble) {
+            if (ch === "\\") escape = true;
+            else if (ch === '"') inDouble = false;
+            continue;
+          }
+          if (inTemplate) {
+            if (ch === "\\") escape = true;
+            else if (ch === "`") inTemplate = false;
+            continue;
+          }
+          if (ch === "'" ) {
+            inSingle = true;
+            continue;
+          }
+          if (ch === '"') {
+            inDouble = true;
+            continue;
+          }
+          if (ch === "`") {
+            inTemplate = true;
+            continue;
+          }
+          if (ch === '/' && peekChar() === '/') {
+            // Skip rest of line
+            lineIdx += 1;
+            i = 0;
+            continue;
+          }
+          if (ch === '/' && peekChar() === '*') {
+            nextChar();
+            inBlockComment = true;
+            continue;
+          }
+          if (ch === '(') {
+            depth += 1;
+            continue;
+          }
+          if (ch === ')') {
+            depth -= 1;
+            if (depth === 0) {
+              return sawToken ? count + 1 : 0;
+            }
+            continue;
+          }
+          if (depth === 1) {
+            if (ch === ',') {
+              count += 1;
+              sawToken = false;
+              continue;
+            }
+            if (!/\s/.test(ch)) {
+              sawToken = true;
+            }
+          }
+        }
+      };
+
+      const isFunctionDeclaration = (fullLine, absoluteStart) => {
+        if (!fullLine || absoluteStart == null) return false;
+        const prefix = fullLine.slice(0, absoluteStart);
+        return /(?:^|[^a-zA-Z0-9_])function\s*$/.test(prefix);
+      };
+
+      const highlightLine = (line, lineIndex, baseOffset = 0, fullLine = line) => {
         const tokenPatterns = [
           {className: 'token-comment', regex: /\/\/.*/g},
           {className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g},
@@ -906,7 +1103,29 @@
 
         merged.forEach((token) => {
           result += escapeHtml(line.slice(cursor, token.start));
-          result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+          if (token.className === 'token-function') {
+            const tokenKey = normalizeFunctionKey(token.text);
+            if (tokenKey && functionInfo) {
+              const absoluteStart = baseOffset + token.start;
+              const isDeclaration = isFunctionDeclaration(fullLine, absoluteStart);
+              const arity = getCallArityFromLines(lines, lineIndex, absoluteStart + token.text.length);
+              const aritySet = functionNameArityMap.get(tokenKey);
+              const hasArityMatch = !isDeclaration && arity !== null && aritySet && aritySet.has(arity);
+              const isUniqueName = !isDeclaration && uniqueFunctionNames.has(tokenKey);
+              const resolvedKey = hasArityMatch
+                ? `${tokenKey}:${arity}`
+                : (isUniqueName ? tokenKey : '');
+              if (resolvedKey) {
+                result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}">${escapeHtml(token.text)}</button>`;
+              } else {
+                result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+              }
+            } else {
+              result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+            }
+          } else {
+            result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+          }
           cursor = token.end;
         });
 
@@ -958,7 +1177,7 @@
         return -1;
       };
 
-      const highlightLineWithState = (line, inBlockComment) => {
+      const highlightLineWithState = (line, inBlockComment, lineIndex) => {
         let result = "";
         let index = 0;
         let inBlock = inBlockComment;
@@ -978,12 +1197,12 @@
 
           const startIdx = findBlockStart(line, index);
           if (startIdx === -1) {
-            result += highlightLine(line.slice(index));
+            result += highlightLine(line.slice(index), lineIndex, index, line);
             return { html: result, inBlockComment: false };
           }
 
           if (startIdx > index) {
-            result += highlightLine(line.slice(index, startIdx));
+            result += highlightLine(line.slice(index, startIdx), lineIndex, index, line);
           }
 
           const endIdx = line.indexOf("*/", startIdx + 2);
@@ -1017,7 +1236,7 @@
       const lines = normalizeIndent(code);
       let inBlockComment = false;
       const rowsHtml = lines.map((line, i) => {
-        const highlighted = highlightLineWithState(line, inBlockComment);
+        const highlighted = highlightLineWithState(line, inBlockComment, i);
         inBlockComment = highlighted.inBlockComment;
         return `
                 <div class="flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line">
@@ -1206,12 +1425,15 @@
       'No storage writes captured for this entry point.'
     );
 
-    const renderNodeWidget = (node, index, animate = true) => {
+    const renderNodeWidget = (node, index, animate = true, functionInfo = null) => {
       // Analyst notes feature removed
 
       // State modifications widget removed per request
       const collapseKey = getNodeCollapseKey(node);
       const collapsed = isNodeCollapsed(collapseKey);
+      const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
+      const arity = parseSignatureArity(node.signature || '');
+      const functionKey = arity === null ? nameKey : `${nameKey}:${arity}`;
       const safeName = node.name || node.functionName || node.signature || 'Unknown';
       const content = `
                 <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" onclick="toggleNodeCollapse('${collapseKey}', event)" aria-expanded="${collapsed ? 'false' : 'true'}">
@@ -1239,20 +1461,40 @@
                 <div class="node-body space-y-6">
                   <div class="node-body-inner space-y-6">
 
-                    ${renderCodeBlock(node.code)}
+                    ${renderCodeBlock(node.code, functionInfo)}
 
                   </div>
                 </div>
             `;
 
       return `
-                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-collapse-key="${collapseKey}">
+                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
                      ${neonCardMarkup('', '', content, 'w-full', true)}
                 </div>
             `;
     };
 
     // --- GLOBAL ACTIONS ---
+    const scrollFlowToFunctionKey = (key) => {
+      if (!key) return false;
+      const mainFlow = document.getElementById('main-flow');
+      if (!mainFlow) return false;
+      let target = mainFlow.querySelector(`[data-function-key="${key}"]`);
+      if (!target && !key.includes(':')) {
+        const matches = mainFlow.querySelectorAll(`[data-function-name="${key}"]`);
+        if (matches.length === 1) {
+          target = matches[0];
+        }
+      }
+      if (!target) return false;
+      const collapseKey = target.getAttribute('data-collapse-key');
+      if (collapseKey && target.classList.contains('node-collapsed')) {
+        toggleNodeCollapse(collapseKey);
+      }
+      target.scrollIntoView({block: 'start', behavior: 'smooth'});
+      return true;
+    };
+
     const scrollActiveFunctionIntoView = () => {
       if (!appState.activeFunctionId) return;
       const activeBtn = document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`);
@@ -1326,6 +1568,16 @@
         }
       });
     };
+
+    document.addEventListener('click', (event) => {
+      const target = event.target.closest('.function-link');
+      if (!target) return;
+      const key = target.getAttribute('data-fn-key');
+      if (scrollFlowToFunctionKey(key)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    });
 
     const ensureDeviceGuard = () => {
       if (deviceGuardEl) return deviceGuardEl;
@@ -1885,12 +2137,29 @@
     const buildMainFlow = (isEntrySwitch) => {
       const graph = callGraphs[appState.activeFunctionId] || [];
       const mainAnimationClass = isEntrySwitch ? '' : 'animate-fadeIn';
+      const nameArityMap = new Map();
+      const nameCounts = new Map();
+      graph.forEach((node) => {
+        const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
+        if (!nameKey) return;
+        nameCounts.set(nameKey, (nameCounts.get(nameKey) || 0) + 1);
+        const arity = parseSignatureArity(node.signature || '');
+        if (arity === null) return;
+        if (!nameArityMap.has(nameKey)) nameArityMap.set(nameKey, new Set());
+        nameArityMap.get(nameKey).add(arity);
+      });
+      const uniqueNames = new Set(
+        Array.from(nameCounts.entries())
+          .filter(([, count]) => count === 1)
+          .map(([name]) => name)
+      );
+      const functionInfo = {nameArityMap, uniqueNames};
       return `
                 <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
                      <div class="h-full flex flex-col">
                         <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
                             <div class="mx-auto">
-                                ${graph.map((node, i) => renderNodeWidget(node, i, !isEntrySwitch)).join('')}
+                                ${graph.map((node, i) => renderNodeWidget(node, i, !isEntrySwitch, functionInfo)).join('')}
                                 <div class="pl-8 pt-4 pb-12 opacity-50 flex items-center gap-4 animate-pulse">
                                     <div class="w-3 h-3 rounded-full bg-slate-800 border border-slate-600"></div>
                                     <div class="h-px w-20 bg-gradient-to-r from-slate-600 to-transparent"></div>
