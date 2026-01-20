@@ -1,4 +1,4 @@
-# OnboardMe (Experimental)
+# 🧪 OnboardMe (Experimental)
 
 Below is a short user interface walkthrough, starting from the homepage, then typing `mainnet:0x..smart-contract-address` to visit a smart contract, and navigating its entry points:
 
@@ -18,15 +18,29 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 
 > **Tip**: Press **?** for a list shortcuts. OnboardMe was designed for a keyboard-centric workflow and most features can only be triggered from a shortcut. Shortcuts are configurable in `src/hotkeys.json`.
 
-## Understand the UI layout
+## ✨ Features
 
-### Center
+- 🧵 Single scrollable execution flow per entry point, including internal calls
+- ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
+- 🧭 Left entry-point list, center execution flow, right storage read/write panel
+- 🔎 Storage dependency panel to trace writers for a selected storage variable
+- ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
+- ✅ Audit marks with a filter to focus on audited entry points
+- 📦 Collapsible function blocks with persisted state and synced collapse across identical code
+- 📋 Chain- and address-aware header with copy-to-clipboard hotkey
+- 🧭 Open contract in a block explorer via hotkey
+- 🔗 Chain name or chain ID input support (`chain:0x...`) with validation
+- 🛠️ Local UI + API (`/generate`) and CLI generation (`python main.py`)
+
+## 🧩 Understand the UI layout
+
+### 🎯 Center
 
 The center section of the screen has the currently selected entry point, with all the internal functions it executes, in a scrollable page.
 
 <img src="./resources/1.png" alt="" style="width:600px; height:auto;">
 
-### Right
+### ➡️ Right
 
 Pressing `r` toggles the visibility of the right panel, which contains every global variable read/written during the execution of this entry point.
 
@@ -36,23 +50,33 @@ Pressing `w` toggles a data dependency panel that lets you list all possible way
 
 <img src="./resources/6.png" alt="" style="width:600px; height:auto;">
 
-### Left
+### ⬅️ Left
 
 Pressing `l` toggles the visibility of the left panel, which contains every entry point. By default, you can switch between entry points by clicking on them or by pressing `j`/`k` for next and previous.
 
 <img src="./resources/3.png" alt="" style="width:600px; height:auto;">
 
-### Search
+### 🔍 Search
 
 Press `e` to fuzzy-find entry points.
 
 <img src="./resources/4.png" alt="" style="width:600px; height:auto;">
 
-### Shortcuts
+### ⌨️ Shortcuts
 
 Press `?` for a list of shortcuts (configurable via `src/hotkeys.json`).
 
-### Hotkeys configuration
+### 🪄 Toggle functions
+
+Click the header of a function to collapse its code.
+
+Folded code persists across contracts, so identical functions stay collapsed.
+
+This is especially useful for common modifiers like `onlyRole` and other repeated patterns across contracts, helping you focus on what matters.
+
+<img src="./resources/7.png" alt="" style="width:600px; height:auto;">
+
+### 🧩 Hotkeys configuration
 
 Edit `src/hotkeys.json` to customize shortcuts and the help popup. Each action maps to one or more key combos.
 
@@ -74,7 +98,7 @@ Edit `src/hotkeys.json` to customize shortcuts and the help popup. Each action m
 
 **We strongly encourage you to press "?" and read the list of shortcuts**, because **some features are hidden from the UI** and can only be triggered from a hotkey.
 
-## Quick start (recommended UI flow)
+## 🚀 Quick start (recommended UI flow)
 
 Create a file named `.env` and add your ETHERSCAN_API_KEY:
 
@@ -105,7 +129,7 @@ Input formats supported by the UI:
 - `0x...` (defaults to `mainnet`)
 - `chain:0x...` (example: `mainnet:0x...` or `1:0x...`)
 
-## Supported chains
+## 🌐 Supported chains
 
 You can use either the chain name or the chain id anywhere a chain is accepted
 (CLI, API, or `chain:0xaddress` input).
@@ -179,7 +203,7 @@ You can use either the chain name or the chain id anywhere a chain is accepted
 | sei | 1329 |
 | testnet.sei | 1328 |
 
-## Generate via CLI (optional)
+## 🧰 Generate via CLI (optional)
 
 ```bash
 # Generate a dashboard for a contract
@@ -191,7 +215,7 @@ python main.py
 
 The output HTML is written to `src/<chain>_<address>.html`.
 
-## API (used by the UI)
+## 🔌 API (used by the UI)
 
 `GET /generate?address=<ADDR>&chain=<CHAIN>`
 
