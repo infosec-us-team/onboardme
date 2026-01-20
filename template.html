@@ -376,7 +376,9 @@
     let lastAddressCopyAt = 0;
     let hotkeyConfig = {actions: {}, help: []};
     let hotkeyBindings = new Map();
+    const COLLAPSED_STORAGE_LIMIT = 500;
     let collapsedNodeIds = new Set();
+    let collapsedNodeOrder = [];
 
     const normalizeId = (text, suffix = '') => {
       const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -396,7 +398,9 @@
       if (!node) return '';
       const code = (node.code || '').trim();
       const signature = (node.signature || node.functionName || node.name || '').trim();
-      const basis = code || signature;
+      const contract = (node.contract || node.contractName || '').trim();
+      // Cross-contract collapse should be driven by identical code; only fall back to per-contract IDs.
+      const basis = code || (signature ? `${signature}|${contract}` : '');
       return basis ? hashString(basis) : normalizeId(node.id || 'node');
     };
 
@@ -472,8 +476,7 @@
     };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const getCollapsedStorageKey = () => {
-      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
-      return `${COLLAPSED_STORAGE_KEY}:${address}`;
+      return COLLAPSED_STORAGE_KEY;
     };
 
     let appState = {
@@ -502,18 +505,41 @@
         const raw = localStorage.getItem(getCollapsedStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
-          collapsedNodeIds = new Set(parsed.filter(Boolean));
+          const seen = new Set();
+          const ordered = [];
+          parsed.forEach((key) => {
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            ordered.push(key);
+          });
+          const trimmed = ordered.length > COLLAPSED_STORAGE_LIMIT
+            ? ordered.slice(-COLLAPSED_STORAGE_LIMIT)
+            : ordered;
+          collapsedNodeOrder = trimmed;
+          collapsedNodeIds = new Set(trimmed);
         }
       } catch (_) {
         collapsedNodeIds = new Set();
+        collapsedNodeOrder = [];
       }
     };
 
     const persistCollapsedNodes = () => {
       try {
-        localStorage.setItem(getCollapsedStorageKey(), JSON.stringify([...collapsedNodeIds]));
+        localStorage.setItem(getCollapsedStorageKey(), JSON.stringify(collapsedNodeOrder));
       } catch (_) {
         // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const touchCollapsedKey = (collapseKey) => {
+      const idx = collapsedNodeOrder.indexOf(collapseKey);
+      if (idx !== -1) collapsedNodeOrder.splice(idx, 1);
+      collapsedNodeOrder.push(collapseKey);
+      if (collapsedNodeOrder.length > COLLAPSED_STORAGE_LIMIT) {
+        const overflow = collapsedNodeOrder.length - COLLAPSED_STORAGE_LIMIT;
+        const removed = collapsedNodeOrder.splice(0, overflow);
+        removed.forEach((key) => collapsedNodeIds.delete(key));
       }
     };
 
@@ -531,8 +557,11 @@
 
       if (isCollapsed) {
         collapsedNodeIds.delete(collapseKey);
+        const idx = collapsedNodeOrder.indexOf(collapseKey);
+        if (idx !== -1) collapsedNodeOrder.splice(idx, 1);
       } else {
         collapsedNodeIds.add(collapseKey);
+        touchCollapsedKey(collapseKey);
       }
 
       widgets.forEach((widget) => {
