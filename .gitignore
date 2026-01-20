@@ -6,6 +6,8 @@ examples/*
 .commands
 # Local secrets and RPC settings
 .env
+# AI assistant guidance (local only)
+AGENTS.md
 # Python bytecode cache
 __pycache__/
 # Ignore generated artifacts in src/; only keep the entry-point HTML tracked
