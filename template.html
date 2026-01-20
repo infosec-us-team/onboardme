@@ -216,6 +216,71 @@
       color: #f472b6;
     }
 
+    .variable-token {
+      position: relative;
+      color: #e2e8f0;
+      transition: color 0.15s ease, text-shadow 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+      cursor: pointer;
+    }
+
+    .variable-token.is-active,
+    .variable-token.is-locked {
+      color: #e0f2fe;
+      background: linear-gradient(90deg, rgba(6, 182, 212, 0.2), rgba(56, 189, 248, 0.35), rgba(6, 182, 212, 0.2));
+      box-shadow: 0 0 4px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.35);
+      border: 0px solid rgba(34, 211, 238, 0.6);
+      border-radius: 2px;
+      padding: 0px 10px;
+    }
+
+    .variable-token.is-active[data-var-scope="storage"],
+    .variable-token.is-locked[data-var-scope="storage"] {
+      color: #fee2e2;
+      background: linear-gradient(90deg, rgba(239, 68, 68, 0.18), rgba(248, 113, 113, 0.32), rgba(239, 68, 68, 0.18));
+      box-shadow: 0 0 4px rgba(239, 68, 68, 0.55), inset 0 0 8px rgba(239, 68, 68, 0.3);
+      border-color: rgba(239, 68, 68, 0.6);
+    }
+
+    .variable-token.is-active[data-var-scope="memory"],
+    .variable-token.is-locked[data-var-scope="memory"] {
+      color: #dbeafe;
+      background: linear-gradient(90deg, rgba(59, 130, 246, 0.18), rgba(96, 165, 250, 0.32), rgba(59, 130, 246, 0.18));
+      box-shadow: 0 0 4px rgba(59, 130, 246, 0.55), inset 0 0 8px rgba(59, 130, 246, 0.3);
+      border-color: rgba(59, 130, 246, 0.6);
+    }
+
+    .variable-token.is-active::after,
+    .variable-token.is-locked::after {
+      content: '';
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      bottom: -2px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.9), transparent);
+      animation: glitch-scan 1.2s ease-in-out infinite alternate;
+      opacity: 0.5;
+      width: 70%;
+      margin-left: 15%;
+    }
+
+    .variable-token.is-active[data-var-scope="storage"]::after,
+    .variable-token.is-locked[data-var-scope="storage"]::after {
+      background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.9), transparent);
+    }
+
+    @keyframes glitch-scan {
+      0% {
+        transform: translateX(-30%);
+        opacity: 0.4;
+      }
+
+      100% {
+        transform: translateX(30%);
+        opacity: 0.4;
+      }
+    }
+
     .audit-toggle {
       width: 18px;
       height: 18px;
@@ -445,6 +510,77 @@
       return basis ? hashString(basis) : normalizeId(node.id || 'node');
     };
 
+    const extractParamNames = (source = '') => {
+      if (!source) return [];
+      const headerMatch = source.match(/\b(function|modifier)\s+[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*\s*\(([\s\S]*?)\)/);
+      if (!headerMatch) return [];
+      const paramsRaw = headerMatch[2].trim();
+      if (!paramsRaw) return [];
+      const params = [];
+      let buf = '';
+      let depth = 0;
+      for (let i = 0; i < paramsRaw.length; i += 1) {
+        const ch = paramsRaw[i];
+        if (ch === '(') depth += 1;
+        if (ch === ')') depth = Math.max(0, depth - 1);
+        if (ch === ',' && depth === 0) {
+          params.push(buf);
+          buf = '';
+          continue;
+        }
+        buf += ch;
+      }
+      if (buf.trim()) params.push(buf);
+      const names = [];
+      params.forEach((param) => {
+        const cleaned = param.replace(/\s+/g, ' ').trim();
+        if (!cleaned) return;
+        const match = cleaned.match(/([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*$/);
+        if (!match) return;
+        const name = match[1];
+        if (['memory', 'storage', 'calldata'].includes(name)) return;
+        names.push(name);
+      });
+      return names;
+    };
+
+    const buildVariableScopeMap = (dependencies = [], storageVars = [], source = '') => {
+      const scopeMap = {};
+      const applyScope = (label, scope) => {
+        if (!label || !scope) return;
+        if (scope === 'solidity_builtin' || scope === 'unknown') return;
+        const name = label.split('.').pop();
+        if (!name) return;
+        if (scope === 'local' || scope === 'parameter') {
+          scopeMap[name] = 'memory';
+          return;
+        }
+        if (scope === 'state' && scopeMap[name] !== 'memory') {
+          scopeMap[name] = 'storage';
+        }
+      };
+      if (!Array.isArray(dependencies)) return scopeMap;
+      dependencies.forEach((dep) => {
+        applyScope(dep?.dependent, dep?.dependent_scope);
+        applyScope(dep?.depends_on, dep?.depends_on_scope);
+      });
+      if (Array.isArray(storageVars)) {
+        storageVars.forEach((item) => {
+          const label = item?.qualified_name || item?.name || '';
+          const name = label.split('.').pop();
+          if (!name) return;
+          if (scopeMap[name] !== 'memory') {
+            scopeMap[name] = 'storage';
+          }
+        });
+      }
+      const paramNames = extractParamNames(source);
+      paramNames.forEach((name) => {
+        scopeMap[name] = 'memory';
+      });
+      return scopeMap;
+    };
+
     const buildDataFromJson = (entries = []) => {
       const functions = entries.map((entry, idx) => {
         const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
@@ -477,6 +613,11 @@
             if (step.restrictions && step.restrictions.length) return step.restrictions;
             return [];
           })();
+          const entryStorageVars = [
+            ...(Array.isArray(entry.state_variables_read) ? entry.state_variables_read : []),
+            ...(Array.isArray(entry.state_variables_written) ? entry.state_variables_written : [])
+          ];
+          const variableScopes = buildVariableScopeMap(step.data_dependencies || [], entryStorageVars, step.source || '');
           return {
             id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex}`),
             depth: stepIndex,
@@ -489,6 +630,7 @@
             complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
             hasMsgSenderCheck: stepIndex === 0 ? entryReadsMsgSender : false,
             modifiedStateVariables: stepIndex === 0 ? entryStateWrites : [],
+            variableScopes,
             restrictions,
             calls: flow.slice(stepIndex + 1).map((callStep, callIdx) => ({
               id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex + 1 + callIdx}`),
@@ -897,11 +1039,247 @@
             </div>
         `;
 
-    const renderCodeBlock = (code, functionInfo = null) => {
+    const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null) => {
       const lineHeight = 'var(--code-line-height, 14px)';
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
       const functionNameArityMap = functionInfo?.nameArityMap || new Map();
       const uniqueFunctionNames = functionInfo?.uniqueNames || new Set();
+      const scopeLookup = variableScopeMap || {};
+      const identifierPattern = /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*/g;
+      const reservedWords = new Set([
+        'var', 'import', 'function', 'constant', 'view', 'pure', 'payable', 'storage', 'memory',
+        'if', 'else', 'for', 'while', 'do', 'break', 'continue', 'return', 'returns',
+        'private', 'public', 'internal', 'external', 'inherited', 'this', 'suicide', 'selfdestruct',
+        'emit', 'new', 'is', 'throw', 'revert', 'assert', 'require', 'contract', 'interface',
+        'library', 'using', 'struct', 'modifier',
+        'address', 'string', 'bool', 'mapping',
+        'onlyOwner', 'onlyRole', 'nonReentrant', 'override', 'virtual'
+      ]);
+      const solidityGlobals = new Set([
+        'msg', 'tx', 'block', 'abi', 'this', 'super'
+      ]);
+
+      const isReservedIdentifier = (name) => {
+        if (name === '_') return true;
+        if (reservedWords.has(name)) return true;
+        if (solidityGlobals.has(name)) return true;
+        if (/^bytes\d+$/i.test(name)) return true;
+        if (/^u?int\d*$/i.test(name)) return true;
+        if (/^u?fixed\d+x\d+$/i.test(name)) return true;
+        return false;
+      };
+
+      const isBuiltinMemberAccess = (text, matchIndex) => {
+        let i = matchIndex - 1;
+        while (i >= 0 && /\s/.test(text[i])) i -= 1;
+        if (i < 0 || text[i] !== '.') return false;
+        i -= 1;
+        while (i >= 0 && /\s/.test(text[i])) i -= 1;
+        if (i < 0) return false;
+        let end = i + 1;
+        while (i >= 0 && /[$\w\xA0-\uFFFF]/.test(text[i])) i -= 1;
+        const start = i + 1;
+        if (start >= end) return false;
+        const base = text.slice(start, end);
+        return solidityGlobals.has(base);
+      };
+
+      const scopeAttrForName = (name) => {
+        const scope = scopeLookup?.[name] || '';
+        if (!scope) return '';
+        return ` data-var-scope="${scope}"`;
+      };
+
+      const scopeClassForName = (name) => {
+        const scope = scopeLookup?.[name] || '';
+        return scope ? ` scope-${scope}` : '';
+      };
+
+      const buildSignatureIndex = (source = '') => {
+        const paramNameRanges = [];
+        const paramListRanges = [];
+        const signatureTailRanges = [];
+        const isIdentChar = (ch) => /[$\w\xA0-\uFFFF]/.test(ch || '');
+        const isKeywordAt = (idx, keyword) => {
+          if (source.slice(idx, idx + keyword.length) !== keyword) return false;
+          const prev = idx > 0 ? source[idx - 1] : '';
+          const next = source[idx + keyword.length] || '';
+          return !isIdentChar(prev) && !isIdentChar(next);
+        };
+        const skipWhitespace = (idx) => {
+          let i = idx;
+          while (i < source.length && /\s/.test(source[i])) i += 1;
+          return i;
+        };
+        const recordParamName = (segmentStart, segmentEnd) => {
+          let end = segmentEnd;
+          while (end > segmentStart && /\s/.test(source[end - 1])) end -= 1;
+          let start = end - 1;
+          while (start >= segmentStart && isIdentChar(source[start])) start -= 1;
+          start += 1;
+          if (start >= end) return;
+          const name = source.slice(start, end);
+          if (['memory', 'storage', 'calldata'].includes(name)) return;
+          const hasWhitespace = /\s/.test(source.slice(segmentStart, start));
+          if (!hasWhitespace) return;
+          paramNameRanges.push([start, end]);
+        };
+        let i = 0;
+        let inSingle = false;
+        let inDouble = false;
+        let inTemplate = false;
+        let inLineComment = false;
+        let inBlockComment = false;
+        let escape = false;
+        while (i < source.length) {
+          const ch = source[i];
+          const next = source[i + 1];
+          if (inLineComment) {
+            if (ch === '\n') inLineComment = false;
+            i += 1;
+            continue;
+          }
+          if (inBlockComment) {
+            if (ch === '*' && next === '/') {
+              inBlockComment = false;
+              i += 2;
+              continue;
+            }
+            i += 1;
+            continue;
+          }
+          if (inSingle) {
+            if (escape) escape = false;
+            else if (ch === '\\') escape = true;
+            else if (ch === "'") inSingle = false;
+            i += 1;
+            continue;
+          }
+          if (inDouble) {
+            if (escape) escape = false;
+            else if (ch === '\\') escape = true;
+            else if (ch === '"') inDouble = false;
+            i += 1;
+            continue;
+          }
+          if (inTemplate) {
+            if (escape) escape = false;
+            else if (ch === '\\') escape = true;
+            else if (ch === '`') inTemplate = false;
+            i += 1;
+            continue;
+          }
+          if (ch === '/' && next === '/') {
+            inLineComment = true;
+            i += 2;
+            continue;
+          }
+          if (ch === '/' && next === '*') {
+            inBlockComment = true;
+            i += 2;
+            continue;
+          }
+          if (ch === "'") {
+            inSingle = true;
+            i += 1;
+            continue;
+          }
+          if (ch === '"') {
+            inDouble = true;
+            i += 1;
+            continue;
+          }
+          if (ch === '`') {
+            inTemplate = true;
+            i += 1;
+            continue;
+          }
+          const keyword = isKeywordAt(i, 'function') ? 'function' : (isKeywordAt(i, 'modifier') ? 'modifier' : '');
+          if (!keyword) {
+            i += 1;
+            continue;
+          }
+          let j = skipWhitespace(i + keyword.length);
+          while (j < source.length && isIdentChar(source[j])) j += 1;
+          j = skipWhitespace(j);
+          if (source[j] !== '(') {
+            i += 1;
+            continue;
+          }
+          const paramOpen = j;
+          let depth = 0;
+          let closeIdx = -1;
+          for (let k = paramOpen; k < source.length; k += 1) {
+            const ch2 = source[k];
+            if (ch2 === '(') depth += 1;
+            if (ch2 === ')') {
+              depth -= 1;
+              if (depth === 0) {
+                closeIdx = k;
+                break;
+              }
+            }
+          }
+          if (closeIdx === -1) {
+            i += 1;
+            continue;
+          }
+          paramListRanges.push([paramOpen + 1, closeIdx]);
+          let segStart = paramOpen + 1;
+          let paramDepth = 0;
+          let bracketDepth = 0;
+          for (let k = paramOpen + 1; k <= closeIdx; k += 1) {
+            const ch2 = source[k];
+            if (ch2 === '(') paramDepth += 1;
+            if (ch2 === ')') paramDepth = Math.max(0, paramDepth - 1);
+            if (ch2 === '[') bracketDepth += 1;
+            if (ch2 === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+            if ((ch2 === ',' && paramDepth === 0 && bracketDepth === 0) || k === closeIdx) {
+              const segmentEnd = k === closeIdx ? k : k;
+              recordParamName(segStart, segmentEnd);
+              segStart = k + 1;
+            }
+          }
+          let tailStart = closeIdx + 1;
+          let tailEnd = tailStart;
+          while (tailEnd < source.length && /\s/.test(source[tailEnd])) tailEnd += 1;
+          while (tailEnd < source.length && source[tailEnd] !== '{' && source[tailEnd] !== ';') tailEnd += 1;
+          if (tailEnd > tailStart) signatureTailRanges.push([tailStart, tailEnd]);
+          i = closeIdx + 1;
+        }
+        return {paramNameRanges, paramListRanges, signatureTailRanges};
+      };
+
+      const isInRanges = (index, ranges) => ranges.some(([start, end]) => index >= start && index < end);
+
+      const wrapVariables = (text, globalOffset = 0, signatureIndex) => {
+        if (!text) return '';
+        let result = '';
+        let lastIndex = 0;
+        identifierPattern.lastIndex = 0;
+        let match;
+        while ((match = identifierPattern.exec(text)) !== null) {
+          const name = match[0];
+          result += escapeHtml(text.slice(lastIndex, match.index));
+          const absoluteIndex = globalOffset + match.index;
+          const inParamList = signatureIndex && isInRanges(absoluteIndex, signatureIndex.paramListRanges);
+          const isParamName = signatureIndex && isInRanges(absoluteIndex, signatureIndex.paramNameRanges);
+          const inSignatureTail = signatureIndex && isInRanges(absoluteIndex, signatureIndex.signatureTailRanges);
+          if (isReservedIdentifier(name) || isBuiltinMemberAccess(text, match.index)) {
+            result += escapeHtml(name);
+          } else if (inParamList && !isParamName) {
+            result += escapeHtml(name);
+          } else if (inSignatureTail) {
+            result += escapeHtml(name);
+          } else {
+            const escapedName = escapeHtml(name);
+            result += `<span class="variable-token${scopeClassForName(name)}" data-var="${escapedName}"${scopeAttrForName(name)}>${escapedName}</span>`;
+          }
+          lastIndex = match.index + name.length;
+        }
+        result += escapeHtml(text.slice(lastIndex));
+        return result;
+      };
 
       const getCallArityFromLines = (lines, lineIndex, fromIndex) => {
         let lineIdx = lineIndex;
@@ -1102,7 +1480,8 @@
         let result = '';
 
         merged.forEach((token) => {
-          result += escapeHtml(line.slice(cursor, token.start));
+          const globalOffset = lineOffsets[lineIndex] + baseOffset + cursor;
+          result += wrapVariables(line.slice(cursor, token.start), globalOffset, signatureIndex);
           if (token.className === 'token-function') {
             const tokenKey = normalizeFunctionKey(token.text);
             if (tokenKey && functionInfo) {
@@ -1123,13 +1502,25 @@
             } else {
               result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
             }
+          } else if (token.className === 'token-constant') {
+            const globalStart = lineOffsets[lineIndex] + baseOffset + token.start;
+            const inParamList = signatureIndex && isInRanges(globalStart, signatureIndex.paramListRanges);
+            const isParamName = signatureIndex && isInRanges(globalStart, signatureIndex.paramNameRanges);
+            const inSignatureTail = signatureIndex && isInRanges(globalStart, signatureIndex.signatureTailRanges);
+            if (inSignatureTail || (inParamList && !isParamName)) {
+              result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+            } else {
+              const escapedName = escapeHtml(token.text);
+              result += `<span class="${token.className} variable-token${scopeClassForName(token.text)}" data-var="${escapedName}"${scopeAttrForName(token.text)}>${escapedName}</span>`;
+            }
           } else {
             result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
           }
           cursor = token.end;
         });
 
-        result += escapeHtml(line.slice(cursor));
+        const tailGlobalOffset = lineOffsets[lineIndex] + baseOffset + cursor;
+        result += wrapVariables(line.slice(cursor), tailGlobalOffset, signatureIndex);
         return result;
       };
 
@@ -1234,6 +1625,13 @@
       };
 
       const lines = normalizeIndent(code);
+      const lineOffsets = [];
+      let runningOffset = 0;
+      lines.forEach((line, idx) => {
+        lineOffsets[idx] = runningOffset;
+        runningOffset += line.length + 1;
+      });
+      const signatureIndex = buildSignatureIndex(lines.join('\n'));
       let inBlockComment = false;
       const rowsHtml = lines.map((line, i) => {
         const highlighted = highlightLineWithState(line, inBlockComment, i);
@@ -1461,7 +1859,7 @@
                 <div class="node-body space-y-6">
                   <div class="node-body-inner space-y-6">
 
-                    ${renderCodeBlock(node.code, functionInfo)}
+                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes)}
 
                   </div>
                 </div>
@@ -1569,6 +1967,67 @@
       });
     };
 
+    const cssEscape = (value) => {
+      if (window.CSS && CSS.escape) return CSS.escape(value);
+      return value.replace(/["\\]/g, '\\$&');
+    };
+
+    const clearHoverHighlights = (scope) => {
+      scope.querySelectorAll('.variable-token.is-active').forEach((el) => {
+        el.classList.remove('is-active');
+      });
+    };
+
+    const clearLockedHighlights = (scope) => {
+      scope.querySelectorAll('.variable-token.is-locked').forEach((el) => {
+        el.classList.remove('is-locked');
+      });
+    };
+
+    const getVariableLock = (scope) => {
+      const name = scope.getAttribute('data-var-lock');
+      if (!name) return null;
+      return {
+        name,
+        scope: scope.getAttribute('data-var-scope-lock') || ''
+      };
+    };
+
+    const setVariableLock = (scope, varName, varScope) => {
+      scope.setAttribute('data-var-lock', varName);
+      scope.setAttribute('data-var-scope-lock', varScope || '');
+    };
+
+    const clearVariableLock = (scope) => {
+      scope.removeAttribute('data-var-lock');
+      scope.removeAttribute('data-var-scope-lock');
+    };
+
+    const highlightVariableUses = (tokenEl, {lock = false} = {}) => {
+      const varName = tokenEl.getAttribute('data-var');
+      if (!varName) return;
+      const varScope = tokenEl.getAttribute('data-var-scope') || '';
+      const scope = tokenEl.closest('.code-block') || document;
+      if (lock) {
+        setVariableLock(scope, varName, varScope);
+      }
+      clearHoverHighlights(scope);
+      const scopeSelector = varScope ? `[data-var-scope="${cssEscape(varScope)}"]` : '';
+      const selector = `.variable-token[data-var="${cssEscape(varName)}"]${scopeSelector}`;
+      scope.querySelectorAll(selector).forEach((el) => {
+        el.classList.add(lock ? 'is-locked' : 'is-active');
+      });
+    };
+
+    const applyLockedHighlight = (scope) => {
+      const lock = getVariableLock(scope);
+      if (!lock) return;
+      clearLockedHighlights(scope);
+      const scopeSelector = lock.scope ? `[data-var-scope="${cssEscape(lock.scope)}"]` : '';
+      const selector = `.variable-token[data-var="${cssEscape(lock.name)}"]${scopeSelector}`;
+      scope.querySelectorAll(selector).forEach((el) => el.classList.add('is-locked'));
+    };
+
     document.addEventListener('click', (event) => {
       const target = event.target.closest('.function-link');
       if (!target) return;
@@ -1577,6 +2036,42 @@
         event.preventDefault();
         event.stopPropagation();
       }
+    });
+
+    document.addEventListener('mouseover', (event) => {
+      const tokenEl = event.target.closest('.variable-token');
+      if (!tokenEl) return;
+      highlightVariableUses(tokenEl);
+    });
+
+    document.addEventListener('mouseout', (event) => {
+      const tokenEl = event.target.closest('.variable-token');
+      if (!tokenEl) return;
+      const scope = tokenEl.closest('.code-block') || document;
+      const related = event.relatedTarget?.closest('.variable-token');
+      if (related && related.closest('.code-block') === tokenEl.closest('.code-block')) return;
+      if (getVariableLock(scope)) {
+        clearHoverHighlights(scope);
+        applyLockedHighlight(scope);
+        return;
+      }
+      clearHoverHighlights(scope);
+    });
+
+    document.addEventListener('click', (event) => {
+      const tokenEl = event.target.closest('.variable-token');
+      if (!tokenEl) return;
+      const scope = tokenEl.closest('.code-block') || document;
+      const lock = getVariableLock(scope);
+      const varName = tokenEl.getAttribute('data-var') || '';
+      const varScope = tokenEl.getAttribute('data-var-scope') || '';
+      if (lock && lock.name === varName && lock.scope === varScope) {
+        clearVariableLock(scope);
+        clearLockedHighlights(scope);
+        return;
+      }
+      clearLockedHighlights(scope);
+      highlightVariableUses(tokenEl, {lock: true});
     });
 
     const ensureDeviceGuard = () => {

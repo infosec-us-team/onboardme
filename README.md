@@ -31,6 +31,8 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 - 🧭 Open contract in a block explorer via hotkey
 - 🔗 Chain name or chain ID input support (`chain:0x...`) with validation
 - 🛠️ Local UI + API (`/generate`) and CLI generation (`python main.py`)
+- 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
+- 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
 
 ## 🧩 Understand the UI layout
 
@@ -62,10 +64,6 @@ Press `e` to fuzzy-find entry points.
 
 <img src="./resources/4.png" alt="" style="width:600px; height:auto;">
 
-### ⌨️ Shortcuts
-
-Press `?` for a list of shortcuts (configurable via `src/hotkeys.json`).
-
 ### 🪄 Toggle functions
 
 Click the header of a function to collapse its code.
@@ -75,6 +73,16 @@ Folded code persists across contracts, so identical functions stay collapsed.
 This is especially useful for common modifiers like `onlyRole` and other repeated patterns across contracts, helping you focus on what matters.
 
 <img src="./resources/7.png" alt="" style="width:600px; height:auto;">
+
+### 🧬 Variable hover lens
+
+Hover or click any variable inside a function to highlight every occurrence. Storage variables glow red, memory variables glow blue.
+
+<img src="./resources/8.gif" alt="" style="width:600px; height:auto;">
+
+### ⌨️ Shortcuts
+
+Press `?` for a list of shortcuts (configurable via `src/hotkeys.json`).
 
 ### 🧩 Hotkeys configuration
 
