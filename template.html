@@ -226,6 +226,33 @@
     .audit-toggle.is-active svg {
       opacity: 1;
     }
+
+    .node-header {
+      cursor: pointer;
+    }
+
+    .node-body {
+      display: grid;
+      grid-template-rows: 1fr;
+      transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .node-body-inner {
+      overflow: hidden;
+      transition: opacity 0.22s ease, transform 0.25s ease;
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .node-collapsed .node-body {
+      grid-template-rows: 0fr;
+    }
+
+    .node-collapsed .node-body-inner {
+      opacity: 0;
+      transform: translateY(-6px);
+      pointer-events: none;
+    }
   </style>
 </head>
 
@@ -349,10 +376,28 @@
     let lastAddressCopyAt = 0;
     let hotkeyConfig = {actions: {}, help: []};
     let hotkeyBindings = new Map();
+    let collapsedNodeIds = new Set();
 
     const normalizeId = (text, suffix = '') => {
       const base = (text || 'fn').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
       return suffix ? `${base}_${suffix}` : base;
+    };
+
+    const hashString = (value = '') => {
+      let hash = 0;
+      for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0;
+      }
+      return `h${Math.abs(hash)}`;
+    };
+
+    const getNodeCollapseKey = (node) => {
+      if (!node) return '';
+      const code = (node.code || '').trim();
+      const signature = (node.signature || node.functionName || node.name || '').trim();
+      const basis = code || signature;
+      return basis ? hashString(basis) : normalizeId(node.id || 'node');
     };
 
     const buildDataFromJson = (entries = []) => {
@@ -425,6 +470,11 @@
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${AUDIT_STORAGE_KEY}:${address}`;
     };
+    const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
+    const getCollapsedStorageKey = () => {
+      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
+      return `${COLLAPSED_STORAGE_KEY}:${address}`;
+    };
 
     let appState = {
       activeFunctionId: null,
@@ -447,6 +497,56 @@
     };
 
     let auditedFunctionIds = new Set();
+    const loadCollapsedNodes = () => {
+      try {
+        const raw = localStorage.getItem(getCollapsedStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          collapsedNodeIds = new Set(parsed.filter(Boolean));
+        }
+      } catch (_) {
+        collapsedNodeIds = new Set();
+      }
+    };
+
+    const persistCollapsedNodes = () => {
+      try {
+        localStorage.setItem(getCollapsedStorageKey(), JSON.stringify([...collapsedNodeIds]));
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const isNodeCollapsed = (collapseKey) => Boolean(collapseKey && collapsedNodeIds.has(collapseKey));
+
+    const toggleNodeCollapse = (collapseKey, event) => {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (!collapseKey) return;
+      const widgets = document.querySelectorAll(`[data-collapse-key="${collapseKey}"]`);
+      if (!widgets.length) return;
+      const isCollapsed = widgets[0].classList.contains('node-collapsed');
+
+      if (isCollapsed) {
+        collapsedNodeIds.delete(collapseKey);
+      } else {
+        collapsedNodeIds.add(collapseKey);
+      }
+
+      widgets.forEach((widget) => {
+        const header = widget.querySelector('.node-header');
+        if (isCollapsed) {
+          widget.classList.remove('node-collapsed');
+          if (header) header.setAttribute('aria-expanded', 'true');
+        } else {
+          widget.classList.add('node-collapsed');
+          if (header) header.setAttribute('aria-expanded', 'false');
+        }
+      });
+      persistCollapsedNodes();
+    };
 
     const loadAuditMarks = () => {
       try {
@@ -900,7 +1000,7 @@
       }).join('');
 
       return `
-                <div class="relative font-mono code-block overflow-hidden group" style="line-height:${lineHeight};">
+                <div class="relative p-6 font-mono code-block overflow-hidden group" style="line-height:${lineHeight};">
                      <div class="relative overflow-x-auto custom-scrollbar">
                          <div class="relative z-10 flex flex-col gap-0">
                              ${rowsHtml}
@@ -984,6 +1084,9 @@
           return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>`;
         case 'box':
           return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`;
+        case 'code':
+          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"${cls}> <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" /> </svg>
+`
         default:
           return '';
       }
@@ -1078,8 +1181,10 @@
       // Analyst notes feature removed
 
       // State modifications widget removed per request
+      const collapseKey = getNodeCollapseKey(node);
+      const collapsed = isNodeCollapsed(collapseKey);
       const content = `
-                <div class="bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between">
+                <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" onclick="toggleNodeCollapse('${collapseKey}', event)" aria-expanded="${collapsed ? 'false' : 'true'}">
                     <div class="flex items-center gap-4">
                         <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
                             ${node.type === 'entry-point'
@@ -1091,24 +1196,27 @@
                                 <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${node.name.length > 50 ? node.name.slice(0, 50) + '...' : node.name}"></h3>
                             </div>
                             <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
-                                ${iconSvg('box', 'w-3 h-3 text-cyan-600')}
+                                ${iconSvg('box', 'w-3 h-3 text-cyan-600 animate-pulse')}
                                 <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${node.contractName}.sol</span>
+                                ${iconSvg('code', 'w-3 h-3 text-green-600 animate-pulse')}
+                                <div class="text-green-600 font-mono flex items-center font-bold mt-[1px]">${node.signature} </div>
                                 ${iconSvg('radical', 'w-3 h-3 text-purple-400 animate-pulse')}
                                 <div class="text-purple-400 font-mono flex items-center font-bold mt-[1px]">COMPLEXITY LVL. ${node.complexity} </div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="p-6 space-y-6">
+                <div class="node-body space-y-6">
+                  <div class="node-body-inner space-y-6">
 
                     ${renderCodeBlock(node.code)}
 
-
+                  </div>
                 </div>
             `;
 
       return `
-                <div class="relative pb-4 last:pb-0 ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}">
+                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-collapse-key="${collapseKey}">
                      ${neonCardMarkup('', '', content, 'w-full', true)}
                 </div>
             `;
@@ -1901,6 +2009,7 @@
       outroOverlay = document.getElementById('outro-overlay');
       loadCodeFontSize();
       loadAuditMarks();
+      loadCollapsedNodes();
       await loadHotkeyConfig();
       const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
       functionList = hydrated.functions;
