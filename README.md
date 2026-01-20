@@ -235,16 +235,6 @@ Response:
 }
 ```
 
-## Project layout
-
-```
-.
-├─ main.py         # CLI generator for a single contract HTML
-├─ serve.py        # HTTP server + /generate API
-├─ template.html   # UI template with embedded flow data
-└─ src/            # UI entrypoint (index.html) + generated dashboards + registry.json + hotkeys.json
-```
-
 ## Contributing
 
 Issues and PRs are welcome. If you hit a failure, please include:
