@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import threading
 import time
 from itertools import chain
@@ -972,13 +973,61 @@ def _walk_callable(
         "solidity_calls",
     )
 
-    all_calls = chain.from_iterable(
-        getattr(item, attr, []) for attr in CALL_ATTRS
+    all_calls = list(
+        chain.from_iterable(getattr(item, attr, []) for attr in CALL_ATTRS)
     )
+    operations = getattr(item, "all_slithir_operations", None)
+    if callable(operations):
+        for ir in operations():
+            if isinstance(ir, (InternalCall, HighLevelCall, LibraryCall)):
+                all_calls.append(ir)
+    # Fallback: scan source for internal/private calls Slither may miss.
+    caller_contract = getattr(item, "contract_declarer", None) or getattr(item, "contract", None)
+    if caller_contract is not None:
+        candidates = [caller_contract]
+        candidates.extend(getattr(caller_contract, "inheritance", []) or [])
+        fn_by_name: Dict[str, Function] = {}
+        for contract in candidates:
+            for fn in getattr(contract, "functions_declared", []) or []:
+                name = getattr(fn, "name", None)
+                if name and name.startswith("_"):
+                    fn_by_name.setdefault(name, fn)
+        source_text = _source_text(item)
+        if source_text:
+            for match in re.finditer(r"\b(_[A-Za-z0-9_]*)\s*\(", source_text):
+                fallback_fn = fn_by_name.get(match.group(1))
+                if fallback_fn is not None:
+                    all_calls.append(fallback_fn)
+
+    def _extract_target(call_obj):
+        candidate = None
+        if isinstance(call_obj, tuple) and len(call_obj) >= 2:
+            candidate = call_obj[1]
+        elif isinstance(call_obj, (InternalCall, HighLevelCall, LibraryCall)):
+            candidate = getattr(call_obj, "function", None)
+        elif isinstance(call_obj, (Function, Modifier)):
+            candidate = call_obj
+        else:
+            candidate = getattr(call_obj, "function", None)
+        if isinstance(candidate, (InternalCall, HighLevelCall, LibraryCall)):
+            candidate = getattr(candidate, "function", None)
+        if isinstance(candidate, (Function, Modifier)):
+            return candidate
+        return None
+
+    def _is_interface_target(target_item: Union[Function, Modifier, None]) -> bool:
+        if target_item is None:
+            return False
+        contract = getattr(target_item, "contract_declarer", None) or getattr(
+            target_item, "contract", None
+        )
+        return bool(contract is not None and getattr(contract, "is_interface", False))
 
     for call in all_calls:
-        target = getattr(call, "function", None)
+        target = _extract_target(call)
         target = _resolve_unimplemented_call(item, target, root_contract)
+        if _is_interface_target(target):
+            continue
         _walk_callable(
             target,
             visited,
@@ -1129,6 +1178,11 @@ def build_entry_point_flows(
                     and hasattr(target_fn, "is_implemented")
                     and not target_fn.is_implemented
                 ):
+                    contract = getattr(target_fn, "contract_declarer", None) or getattr(
+                        target_fn, "contract", None
+                    )
+                    if contract is not None and getattr(contract, "is_library", False):
+                        continue
                     if item["name"] not in reported_unimplemented:
                         print(f"Function not implemented: {item['name']}")
                         reported_unimplemented.add(item["name"])

@@ -439,7 +439,7 @@
           return {
             id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex}`),
             depth: stepIndex,
-            name: step.selector,
+            name: step.selector || step.name || `step_${stepIndex}`,
             contractName: step.contract || entry.contract || 'Unknown',
             functionName: (step.name || `step_${stepIndex}`).split('.').slice(1).join('.'),
             signature: step.name || '',
@@ -1212,6 +1212,7 @@
       // State modifications widget removed per request
       const collapseKey = getNodeCollapseKey(node);
       const collapsed = isNodeCollapsed(collapseKey);
+      const safeName = node.name || node.functionName || node.signature || 'Unknown';
       const content = `
                 <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" onclick="toggleNodeCollapse('${collapseKey}', event)" aria-expanded="${collapsed ? 'false' : 'true'}">
                     <div class="flex items-center gap-4">
@@ -1222,7 +1223,7 @@
                         </div>
                         <div>
                             <div class="flex items-center gap-2">
-                                <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${node.name.length > 50 ? node.name.slice(0, 50) + '...' : node.name}"></h3>
+                                <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${safeName.length > 50 ? safeName.slice(0, 50) + '...' : safeName}"></h3>
                             </div>
                             <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
                                 ${iconSvg('box', 'w-3 h-3 text-cyan-600 animate-pulse')}
