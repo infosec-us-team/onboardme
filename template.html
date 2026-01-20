@@ -194,6 +194,7 @@
       line-height: inherit;
       text-align: left;
       cursor: pointer;
+      font-weight: 600;
     }
 
     .function-link:hover {
@@ -475,8 +476,11 @@
     const baseFunctionName = (text = '') => {
       const trimmed = (text || '').trim();
       if (!trimmed) return '';
-      const withoutContract = trimmed.split('.').pop() || trimmed;
-      return withoutContract.split('(')[0].trim();
+      const openIdx = trimmed.indexOf('(');
+      const head = openIdx === -1 ? trimmed : trimmed.slice(0, openIdx);
+      const dotIdx = head.lastIndexOf('.');
+      const name = dotIdx === -1 ? head : head.slice(dotIdx + 1);
+      return name.trim();
     };
 
     const normalizeFunctionKey = (text = '') => baseFunctionName(text).toLowerCase().replace(/[^a-z0-9]+/g, '');
