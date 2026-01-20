@@ -78,7 +78,7 @@ This is especially useful for common modifiers like `onlyRole` and other repeate
 
 Hover or click any variable inside a function to highlight every occurrence. Storage variables glow red, memory variables glow blue.
 
-<img src="./resources/8.gif" alt="" style="width:600px; height:auto;">
+<img src="./resources/1.gif" alt="" style="width:600px; height:auto;">
 
 ### ⌨️ Shortcuts
 
