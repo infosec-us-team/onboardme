@@ -270,16 +270,67 @@
       background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.9), transparent);
     }
 
-    @keyframes glitch-scan {
-      0% {
-        transform: translateX(-30%);
-        opacity: 0.4;
-      }
+    .var-tooltip {
+      position: fixed;
+      z-index: 9998;
+      max-width: calc(100vw - 20px);
+      padding: 8px 14px;
+      box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 1),
+        0 20px 50px -12px rgba(0, 0, 0, 0.9),
+        0 0 40px #040812;
+      background: #040812;
+      border-radius: 4px
+      /* Extremely faint ambient glow */
+      color: #cbd5e1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: calc(var(--code-font-size) - 5px);
+      line-height: 1.6;
+      pointer-events: none;
+      overflow-x: auto;
+      overflow-y: hidden;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(4px) scale(0.99);
+      transition:
+        opacity 0.1s ease-out,
+        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+        visibility 0s linear 0.1s;
+    }
 
-      100% {
-        transform: translateX(30%);
-        opacity: 0.4;
-      }
+    .var-tooltip.is-visible {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      transition:
+        opacity 0.1s ease-out,
+        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    /* Metadata Row REMOVED */
+
+    .var-tooltip-source {
+      position: relative;
+    }
+
+    .var-tooltip-line {
+      display: block;
+      white-space: pre;
+      color: #94a3b8;
+      /* Muted code color by default */
+    }
+
+    /* Highlight overrides inside tooltip */
+    .var-tooltip-line .token-keyword {
+      color: #c084fc;
+    }
+
+    .var-tooltip-line .token-type {
+      color: #f59e0b;
+    }
+
+    .var-tooltip-line .token-function {
+      color: #22d3ee;
     }
 
     .audit-toggle {
@@ -372,72 +423,72 @@
     const CONTRACT_CHAIN = 'REPLACE_THIS_WITH_CHAIN';
     const CONTRACT_ADDRESS = 'REPLACE_THIS_WITH_ADDRESS';
     const EXPLORER_BY_CHAIN = {
-      mainnet: {id: '1', host: 'etherscan.io'},
-      sepolia: {id: '11155111', host: 'sepolia.etherscan.io'},
-      holesky: {id: '17000', host: 'holesky.etherscan.io'},
-      hoodi: {id: '560048', host: 'hoodi.etherscan.io'},
-      bsc: {id: '56', host: 'bscscan.com'},
-      'testnet.bsc': {id: '97', host: 'testnet.bscscan.com'},
-      poly: {id: '137', host: 'polygonscan.com'},
-      'amoy.poly': {id: '80002', host: 'amoy.polygonscan.com'},
-      base: {id: '8453', host: 'basescan.org'},
-      'sepolia.base': {id: '84532', host: 'sepolia.basescan.org'},
-      arbi: {id: '42161', host: 'arbiscan.io'},
-      'nova.arbi': {id: '42170', host: 'nova.arbiscan.io'},
-      'sepolia.arbi': {id: '421614', host: 'sepolia.arbiscan.io'},
-      linea: {id: '59144', host: 'lineascan.build'},
-      'sepolia.linea': {id: '59141', host: 'sepolia.lineascan.build'},
-      blast: {id: '81457', host: 'blastscan.io'},
-      'sepolia.blast': {id: '168587773', host: 'sepolia.blastscan.io'},
-      optim: {id: '10', host: 'optimistic.etherscan.io'},
-      'sepolia.optim': {id: '11155420', host: 'sepolia-optimism.etherscan.io'},
-      avax: {id: '43114', host: 'snowscan.xyz'},
-      'testnet.avax': {id: '43113', host: 'testnet.snowscan.xyz'},
-      bttc: {id: '199', host: 'bttcscan.com'},
-      'testnet.bttc': {id: '1029', host: 'testnet.bttcscan.com'},
-      celo: {id: '42220', host: 'celoscan.io'},
-      'sepolia.celo': {id: '11142220', host: 'sepolia.celoscan.io'},
-      frax: {id: '252', host: 'fraxscan.com'},
-      'hoodi.frax': {id: '2523', host: 'hoodi.fraxscan.com'},
-      gno: {id: '100', host: 'gnosisscan.io'},
-      mantle: {id: '5000', host: 'mantlescan.xyz'},
-      'sepolia.mantle': {id: '5003', host: 'sepolia.mantlescan.xyz'},
-      memecore: {id: '43521', host: 'testnet.memecorescan.io'},
-      moonbeam: {id: '1284', host: 'moonbeam.moonscan.io'},
-      moonriver: {id: '1285', host: 'moonriver.moonscan.io'},
-      moonbase: {id: '1287', host: 'moonbase.moonscan.io'},
-      opbnb: {id: '204', host: 'opbnb.bscscan.com'},
-      'testnet.opbnb': {id: '5611', host: 'opbnb-testnet.bscscan.com'},
-      scroll: {id: '534352', host: 'scrollscan.com'},
-      'sepolia.scroll': {id: '534351', host: 'sepolia.scrollscan.com'},
-      taiko: {id: '167000', host: 'taikoscan.io'},
-      'hoodi.taiko': {id: '167013', host: 'hoodi.taikoscan.io'},
-      'era.zksync': {id: '324', host: 'era.zksync.network'},
-      'sepoliaera.zksync': {id: '300', host: 'sepolia-era.zksync.network'},
-      xdc: {id: '50', host: 'xdcscan.com'},
-      'testnet.xdc': {id: '51', host: 'testnet.xdcscan.com'},
-      apechain: {id: '33139', host: 'apescan.io'},
-      'curtis.apechain': {id: '33111', host: 'curtis.apescan.io'},
-      world: {id: '480', host: 'worldscan.org'},
-      'sepolia.world': {id: '4801', host: 'sepolia.worldscan.org'},
-      sophon: {id: '50104', host: 'sophscan.xyz'},
-      'testnet.sophon': {id: '531050104', host: 'testnet.sophscan.xyz'},
-      sonic: {id: '146', host: 'sonicscan.org'},
-      'testnet.sonic': {id: '14601', host: 'testnet.sonicscan.org'},
-      unichain: {id: '130', host: 'uniscan.xyz'},
-      'sepolia.unichain': {id: '1301', host: 'sepolia.uniscan.xyz'},
-      abstract: {id: '2741', host: 'abscan.org'},
-      'sepolia.abstract': {id: '11124', host: 'sepolia.abscan.org'},
-      berachain: {id: '80094', host: 'berascan.com'},
-      'testnet.berachain': {id: '80069', host: 'testnet.berascan.com'},
-      swellchain: {id: '1923', host: 'swellchainscan.io'},
-      'testnet.swellchain': {id: '1924', host: 'sepolia.swellchainscan.io'},
-      'testnet.monad': {id: '10143', host: 'testnet.monadscan.com'},
-      hyperevm: {id: '999', host: 'hyperevmscan.io'},
-      katana: {id: '747474', host: 'katanascan.com'},
-      'bokuto.katana': {id: '737373', host: 'bokuto.katanascan.com'},
-      sei: {id: '1329', host: 'seiscan.io'},
-      'testnet.sei': {id: '1328', host: 'testnet.seiscan.io'}
+      mainnet: { id: '1', host: 'etherscan.io' },
+      sepolia: { id: '11155111', host: 'sepolia.etherscan.io' },
+      holesky: { id: '17000', host: 'holesky.etherscan.io' },
+      hoodi: { id: '560048', host: 'hoodi.etherscan.io' },
+      bsc: { id: '56', host: 'bscscan.com' },
+      'testnet.bsc': { id: '97', host: 'testnet.bscscan.com' },
+      poly: { id: '137', host: 'polygonscan.com' },
+      'amoy.poly': { id: '80002', host: 'amoy.polygonscan.com' },
+      base: { id: '8453', host: 'basescan.org' },
+      'sepolia.base': { id: '84532', host: 'sepolia.basescan.org' },
+      arbi: { id: '42161', host: 'arbiscan.io' },
+      'nova.arbi': { id: '42170', host: 'nova.arbiscan.io' },
+      'sepolia.arbi': { id: '421614', host: 'sepolia.arbiscan.io' },
+      linea: { id: '59144', host: 'lineascan.build' },
+      'sepolia.linea': { id: '59141', host: 'sepolia.lineascan.build' },
+      blast: { id: '81457', host: 'blastscan.io' },
+      'sepolia.blast': { id: '168587773', host: 'sepolia.blastscan.io' },
+      optim: { id: '10', host: 'optimistic.etherscan.io' },
+      'sepolia.optim': { id: '11155420', host: 'sepolia-optimism.etherscan.io' },
+      avax: { id: '43114', host: 'snowscan.xyz' },
+      'testnet.avax': { id: '43113', host: 'testnet.snowscan.xyz' },
+      bttc: { id: '199', host: 'bttcscan.com' },
+      'testnet.bttc': { id: '1029', host: 'testnet.bttcscan.com' },
+      celo: { id: '42220', host: 'celoscan.io' },
+      'sepolia.celo': { id: '11142220', host: 'sepolia.celoscan.io' },
+      frax: { id: '252', host: 'fraxscan.com' },
+      'hoodi.frax': { id: '2523', host: 'hoodi.fraxscan.com' },
+      gno: { id: '100', host: 'gnosisscan.io' },
+      mantle: { id: '5000', host: 'mantlescan.xyz' },
+      'sepolia.mantle': { id: '5003', host: 'sepolia.mantlescan.xyz' },
+      memecore: { id: '43521', host: 'testnet.memecorescan.io' },
+      moonbeam: { id: '1284', host: 'moonbeam.moonscan.io' },
+      moonriver: { id: '1285', host: 'moonriver.moonscan.io' },
+      moonbase: { id: '1287', host: 'moonbase.moonscan.io' },
+      opbnb: { id: '204', host: 'opbnb.bscscan.com' },
+      'testnet.opbnb': { id: '5611', host: 'opbnb-testnet.bscscan.com' },
+      scroll: { id: '534352', host: 'scrollscan.com' },
+      'sepolia.scroll': { id: '534351', host: 'sepolia.scrollscan.com' },
+      taiko: { id: '167000', host: 'taikoscan.io' },
+      'hoodi.taiko': { id: '167013', host: 'hoodi.taikoscan.io' },
+      'era.zksync': { id: '324', host: 'era.zksync.network' },
+      'sepoliaera.zksync': { id: '300', host: 'sepolia-era.zksync.network' },
+      xdc: { id: '50', host: 'xdcscan.com' },
+      'testnet.xdc': { id: '51', host: 'testnet.xdcscan.com' },
+      apechain: { id: '33139', host: 'apescan.io' },
+      'curtis.apechain': { id: '33111', host: 'curtis.apescan.io' },
+      world: { id: '480', host: 'worldscan.org' },
+      'sepolia.world': { id: '4801', host: 'sepolia.worldscan.org' },
+      sophon: { id: '50104', host: 'sophscan.xyz' },
+      'testnet.sophon': { id: '531050104', host: 'testnet.sophscan.xyz' },
+      sonic: { id: '146', host: 'sonicscan.org' },
+      'testnet.sonic': { id: '14601', host: 'testnet.sonicscan.org' },
+      unichain: { id: '130', host: 'uniscan.xyz' },
+      'sepolia.unichain': { id: '1301', host: 'sepolia.uniscan.xyz' },
+      abstract: { id: '2741', host: 'abscan.org' },
+      'sepolia.abstract': { id: '11124', host: 'sepolia.abscan.org' },
+      berachain: { id: '80094', host: 'berascan.com' },
+      'testnet.berachain': { id: '80069', host: 'testnet.berascan.com' },
+      swellchain: { id: '1923', host: 'swellchainscan.io' },
+      'testnet.swellchain': { id: '1924', host: 'sepolia.swellchainscan.io' },
+      'testnet.monad': { id: '10143', host: 'testnet.monadscan.com' },
+      hyperevm: { id: '999', host: 'hyperevmscan.io' },
+      katana: { id: '747474', host: 'katanascan.com' },
+      'bokuto.katana': { id: '737373', host: 'bokuto.katanascan.com' },
+      sei: { id: '1329', host: 'seiscan.io' },
+      'testnet.sei': { id: '1328', host: 'testnet.seiscan.io' }
     };
     const EXPLORER_HOST_BY_CHAIN_ID = Object.values(EXPLORER_BY_CHAIN).reduce((acc, entry) => {
       acc[entry.id] = entry.host;
@@ -462,7 +513,7 @@
     let outroOverlay = null;
     let addressCopyTimeout = null;
     let lastAddressCopyAt = 0;
-    let hotkeyConfig = {actions: {}, help: []};
+    let hotkeyConfig = { actions: {}, help: [] };
     let hotkeyBindings = new Map();
     const COLLAPSED_STORAGE_LIMIT = 500;
     let collapsedNodeIds = new Set();
@@ -634,6 +685,7 @@
             complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
             hasMsgSenderCheck: stepIndex === 0 ? entryReadsMsgSender : false,
             modifiedStateVariables: stepIndex === 0 ? entryStateWrites : [],
+            variableRecords: Array.isArray(step.variable_records) ? step.variable_records : [],
             variableScopes,
             restrictions,
             calls: flow.slice(stepIndex + 1).map((callStep, callIdx) => ({
@@ -648,7 +700,7 @@
         });
       });
 
-      return {functions, callGraphs: graphs, stateReads, stateWrites};
+      return { functions, callGraphs: graphs, stateReads, stateWrites };
     };
 
     // --- STATE & UTILS ---
@@ -794,7 +846,7 @@
       });
     };
 
-    const toggleAudit = (id, {persist = true} = {}) => {
+    const toggleAudit = (id, { persist = true } = {}) => {
       if (!id) return;
       if (auditedFunctionIds.has(id)) {
         auditedFunctionIds.delete(id);
@@ -819,7 +871,7 @@
       toggleAudit(id);
     };
 
-    const setCodeFontSize = (size, {persist = true} = {}) => {
+    const setCodeFontSize = (size, { persist = true } = {}) => {
       const clamped = Math.min(CODE_FONT_MAX, Math.max(CODE_FONT_MIN, Math.round(size)));
       const lineHeight = Math.round(clamped * 1.4);
       document.documentElement.style.setProperty('--code-font-size', `${clamped}px`);
@@ -842,7 +894,7 @@
         stored = null;
       }
       const initial = Number.isFinite(stored) ? stored : CODE_FONT_DEFAULT;
-      setCodeFontSize(initial, {persist: false});
+      setCodeFontSize(initial, { persist: false });
     };
 
     const adjustCodeFontSize = (delta) => {
@@ -932,14 +984,14 @@
 
     const loadHotkeyConfig = async () => {
       try {
-        const res = await fetch('./hotkeys.json', {cache: 'no-store'});
+        const res = await fetch('./hotkeys.json', { cache: 'no-store' });
         if (!res.ok) throw new Error('hotkeys.json not found');
         const data = await res.json();
         if (data && typeof data === 'object') {
           hotkeyConfig = data;
         }
       } catch (_) {
-        hotkeyConfig = {actions: {}, help: []};
+        hotkeyConfig = { actions: {}, help: [] };
       }
       buildHotkeyBindings();
       if (hotkeyHelpEl) {
@@ -1043,12 +1095,37 @@
             </div>
         `;
 
-    const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null) => {
+    const buildVarInfoMap = (records = []) => {
+      const map = {};
+      if (!Array.isArray(records)) return map;
+      records.forEach((record) => {
+        if (!record) return;
+        const rawName = record?.name || record?.qualified_name || '';
+        const name = rawName.split('.').pop();
+        if (name && !map[name]) {
+          map[name] = record;
+        }
+        const structName = record?.struct?.name || '';
+        if (structName && !map[structName]) {
+          map[structName] = {
+            name: structName,
+            struct: record.struct,
+            source: record?.struct?.source || '',
+            kind: 'struct'
+          };
+        }
+      });
+      return map;
+    };
+
+    const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null, variableRecords = []) => {
       const lineHeight = 'var(--code-line-height, 14px)';
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
       const functionNameArityMap = functionInfo?.nameArityMap || new Map();
       const uniqueFunctionNames = functionInfo?.uniqueNames || new Set();
       const scopeLookup = variableScopeMap || {};
+      const varInfoMap = buildVarInfoMap(variableRecords);
+      const varInfoJson = escapeHtml(JSON.stringify(varInfoMap));
       const identifierPattern = /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*/g;
       const reservedWords = new Set([
         'var', 'import', 'function', 'constant', 'view', 'pure', 'payable', 'storage', 'memory',
@@ -1252,7 +1329,7 @@
           if (tailEnd > tailStart) signatureTailRanges.push([tailStart, tailEnd]);
           i = closeIdx + 1;
         }
-        return {paramNameRanges, paramListRanges, signatureTailRanges};
+        return { paramNameRanges, paramListRanges, signatureTailRanges };
       };
 
       const isInRanges = (index, ranges) => ranges.some(([start, end]) => index >= start && index < end);
@@ -1387,7 +1464,7 @@
             else if (ch === "`") inTemplate = false;
             continue;
           }
-          if (ch === "'" ) {
+          if (ch === "'") {
             inSingle = true;
             continue;
           }
@@ -1442,22 +1519,22 @@
 
       const highlightLine = (line, lineIndex, baseOffset = 0, fullLine = line) => {
         const tokenPatterns = [
-          {className: 'token-comment', regex: /\/\/.*/g},
-          {className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g},
-          {className: 'token-string', regex: /`(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g},
-          {className: 'token-regex', regex: /\/(?:\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*(?:$|[,\r\n.;})\]]))/g},
-          {className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|delete|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g},
-          {className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/g},
-          {className: 'token-type', regex: /\b(?:address|string|bytes\d*|int\d*|uint\d*|bool|u?fixed\d+x\d+|mapping)\b/g},
-          {className: 'token-constant', regex: /\b[A-Z][A-Z\d_]*\b/g},
-          {className: 'token-number', regex: /\b(?:0[xX][\dA-Fa-f]+|0[bB][01]+|0[oO][0-7]+|NaN|Infinity)\b|(?:\b\d+\.?\d*|\B\.\d+)(?:[Ee][+-]?\d+)?/g},
-          {className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*\()/g},
-          {className: 'token-operator', regex: /-[-=]?|\+[+=]?|!=?=?|<<?=?|>>?>?=?|=(?:==?|>)?|&[&=]?|\|[|=]?|\*\*?=?|\/=?|~|\^=?|%=?|\?|\.{3}/g},
-          {className: 'token-modifier', regex: /\b(?:onlyOwner|onlyRole|nonReentrant|override|payable|view|pure|virtual)\b/g}
+          { className: 'token-comment', regex: /\/\/.*/g },
+          { className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g },
+          { className: 'token-string', regex: /`(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g },
+          { className: 'token-regex', regex: /\/(?:\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*(?:$|[,\r\n.;})\]]))/g },
+          { className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|delete|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g },
+          { className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/g },
+          { className: 'token-type', regex: /\b(?:address|string|bytes\d*|int\d*|uint\d*|bool|u?fixed\d+x\d+|mapping)\b/g },
+          { className: 'token-constant', regex: /\b[A-Z][A-Z\d_]*\b/g },
+          { className: 'token-number', regex: /\b(?:0[xX][\dA-Fa-f]+|0[bB][01]+|0[oO][0-7]+|NaN|Infinity)\b|(?:\b\d+\.?\d*|\B\.\d+)(?:[Ee][+-]?\d+)?/g },
+          { className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*\()/g },
+          { className: 'token-operator', regex: /-[-=]?|\+[+=]?|!=?=?|<<?=?|>>?>?=?|=(?:==?|>)?|&[&=]?|\|[|=]?|\*\*?=?|\/=?|~|\^=?|%=?|\?|\.{3}/g },
+          { className: 'token-modifier', regex: /\b(?:onlyOwner|onlyRole|nonReentrant|override|payable|view|pure|virtual)\b/g }
         ];
 
         const tokens = [];
-        tokenPatterns.forEach(({className, regex}, priority) => {
+        tokenPatterns.forEach(({ className, regex }, priority) => {
           regex.lastIndex = 0;
           let match;
           while ((match = regex.exec(line)) !== null) {
@@ -1651,7 +1728,7 @@
       }).join('');
 
       return `
-                <div class="relative p-6 font-mono code-block overflow-hidden group" style="line-height:${lineHeight};">
+                <div class="relative p-6 font-mono code-block overflow-hidden group" style="line-height:${lineHeight};" data-var-meta="${varInfoJson}">
                      <div class="relative overflow-x-auto custom-scrollbar">
                          <div class="relative z-10 flex flex-col gap-0">
                              ${rowsHtml}
@@ -1659,6 +1736,94 @@
                      </div>
                 </div>
             `;
+    };
+
+    const escapeHtmlGlobal = (unsafe = '') => unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    const TOOLTIP_TOKEN_PATTERNS = [
+      { className: 'token-comment', regex: /\/\/.*/g },
+      { className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g },
+      { className: 'token-string', regex: /`(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g },
+      { className: 'token-regex', regex: /\/(?:\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*(?:$|[,\r\n.;})\]]))/g },
+      { className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|delete|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g },
+      { className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/g },
+      { className: 'token-type', regex: /\b(?:address|string|bytes\d*|int\d*|uint\d*|bool|u?fixed\d+x\d+|mapping)\b/g },
+      { className: 'token-constant', regex: /\b[A-Z][A-Z\d_]*\b/g },
+      { className: 'token-number', regex: /\b(?:0[xX][\dA-Fa-f]+|0[bB][01]+|0[oO][0-7]+|NaN|Infinity)\b|(?:\b\d+\.?\d*|\B\.\d+)(?:[Ee][+-]?\d+)?/g },
+      { className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*\()/g },
+      { className: 'token-operator', regex: /-[-=]?|\+[+=]?|!=?=?|<<?=?|>>?>?=?|=(?:==?|>)?|&[&=]?|\|[|=]?|\*\*?=?|\/=?|~|\^=?|%=?|\?|\.{3}/g },
+      { className: 'token-modifier', regex: /\b(?:onlyOwner|onlyRole|nonReentrant|override|payable|view|pure|virtual)\b/g }
+    ];
+
+    const normalizeSnippetIndent = (source = '') => {
+      const lines = source.replace(/\t/g, '  ').split('\n');
+      let minIndent = null;
+      lines.forEach((line) => {
+        if (!line.trim()) return;
+        const match = line.match(/^\s+/);
+        const size = match ? match[0].length : 0;
+        if (minIndent === null || size < minIndent) minIndent = size;
+      });
+      if (!minIndent) return lines;
+      return lines.map((line) => line.slice(minIndent));
+    };
+
+    const highlightSnippetLine = (line) => {
+      if (!line) return '';
+      const tokens = [];
+      TOOLTIP_TOKEN_PATTERNS.forEach(({ className, regex }, priority) => {
+        regex.lastIndex = 0;
+        let match;
+        while ((match = regex.exec(line)) !== null) {
+          tokens.push({
+            start: match.index,
+            end: match.index + match[0].length,
+            className,
+            text: match[0],
+            priority
+          });
+        }
+      });
+      tokens.sort((a, b) => (a.start === b.start ? a.priority - b.priority : a.start - b.start));
+      const merged = [];
+      let occupied = 0;
+      tokens.forEach((token) => {
+        if (token.start < occupied) return;
+        merged.push(token);
+        occupied = token.end;
+      });
+      let cursor = 0;
+      let result = '';
+      merged.forEach((token) => {
+        result += escapeHtmlGlobal(line.slice(cursor, token.start));
+        result += `<span class="${token.className}">${escapeHtmlGlobal(token.text)}</span>`;
+        cursor = token.end;
+      });
+      result += escapeHtmlGlobal(line.slice(cursor));
+      return result;
+    };
+
+    const renderTooltipSnippet = (source = '', maxLines = 6, maxChars = 420) => {
+      if (!source) return '';
+      let trimmed = source.trim();
+      if (!trimmed) return '';
+      if (trimmed.length > maxChars) trimmed = `${trimmed.slice(0, maxChars)}…`;
+      let lines = normalizeSnippetIndent(trimmed);
+      if (lines.length > maxLines) {
+        lines = lines.slice(0, maxLines);
+        lines.push('…');
+      }
+      return lines.map((line) => {
+        if (line === '…') {
+          return `<span class="var-tooltip-line text-slate-500">…</span>`;
+        }
+        return `<span class="var-tooltip-line">${highlightSnippetLine(line)}</span>`;
+      }).join('\n');
     };
 
     const extractStructFields = (source = '') => {
@@ -1674,7 +1839,7 @@
           const name = parts.pop();
           const type = parts.join(' ');
           if (!name || !type) return null;
-          return {name, type};
+          return { name, type };
         })
         .filter(Boolean);
     };
@@ -1843,8 +2008,8 @@
                     <div class="flex items-center gap-4">
                         <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
                             ${node.type === 'entry-point'
-                              ? iconSvg('zap', 'w-5 h-5 text-cyan-400')
-                              : iconSvg('layers', 'w-5 h-5 text-cyan-900')}
+          ? iconSvg('zap', 'w-5 h-5 text-cyan-400')
+          : iconSvg('layers', 'w-5 h-5 text-cyan-900')}
                         </div>
                         <div>
                             <div class="flex items-center gap-2">
@@ -1864,7 +2029,7 @@
                 <div class="node-body space-y-6">
                   <div class="node-body-inner space-y-6">
 
-                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes)}
+                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords)}
 
                   </div>
                 </div>
@@ -1894,7 +2059,7 @@
       if (collapseKey && target.classList.contains('node-collapsed')) {
         toggleNodeCollapse(collapseKey);
       }
-      target.scrollIntoView({block: 'start', behavior: 'smooth'});
+      target.scrollIntoView({ block: 'start', behavior: 'smooth' });
       return true;
     };
 
@@ -1902,7 +2067,7 @@
       if (!appState.activeFunctionId) return;
       const activeBtn = document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`);
       if (activeBtn) {
-        activeBtn.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: 'smooth'});
+        activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
       }
     };
 
@@ -2008,7 +2173,7 @@
       scope.removeAttribute('data-var-scope-lock');
     };
 
-    const highlightVariableUses = (tokenEl, {lock = false} = {}) => {
+    const highlightVariableUses = (tokenEl, { lock = false } = {}) => {
       const varName = tokenEl.getAttribute('data-var');
       if (!varName) return;
       const varScope = tokenEl.getAttribute('data-var-scope') || '';
@@ -2047,6 +2212,7 @@
       const tokenEl = event.target.closest('.variable-token');
       if (!tokenEl) return;
       highlightVariableUses(tokenEl);
+      showVarTooltip(tokenEl);
     });
 
     document.addEventListener('mouseout', (event) => {
@@ -2055,6 +2221,7 @@
       const scope = tokenEl.closest('.code-block') || document;
       const related = event.relatedTarget?.closest('.variable-token');
       if (related && related.closest('.code-block') === tokenEl.closest('.code-block')) return;
+      hideVarTooltip();
       if (getVariableLock(scope)) {
         clearHoverHighlights(scope);
         applyLockedHighlight(scope);
@@ -2076,7 +2243,7 @@
         return;
       }
       clearLockedHighlights(scope);
-      highlightVariableUses(tokenEl, {lock: true});
+      highlightVariableUses(tokenEl, { lock: true });
     });
 
     const ensureDeviceGuard = () => {
@@ -2152,7 +2319,7 @@
         outroOverlay.removeEventListener('transitionend', go);
         doRedirect();
       };
-      outroOverlay.addEventListener('transitionend', go, {once: true});
+      outroOverlay.addEventListener('transitionend', go, { once: true });
       // Fallback in case transitionend never fires
       setTimeout(doRedirect, 800);
     };
@@ -2199,7 +2366,7 @@
       if (scrollCooldown) return;
       scrollCooldown = true;
       const mainScroll = document.querySelector('#main-flow .overflow-y-auto');
-      if (mainScroll) mainScroll.scrollBy({top: delta, behavior: 'smooth'});
+      if (mainScroll) mainScroll.scrollBy({ top: delta, behavior: 'smooth' });
       setTimeout(() => {
         scrollCooldown = false;
       }, 180);
@@ -2209,7 +2376,7 @@
       if (scrollCooldown) return;
       scrollCooldown = true;
       const mainScroll = document.querySelector('#main-flow .overflow-y-auto');
-      if (mainScroll) mainScroll.scrollTo({top: position, behavior: 'smooth'});
+      if (mainScroll) mainScroll.scrollTo({ top: position, behavior: 'smooth' });
       setTimeout(() => {
         scrollCooldown = false;
       }, 180);
@@ -2230,6 +2397,160 @@
 
     const storageVarLabel = (item) => (item?.qualified_name || item?.name || '').trim();
 
+    const storageVarIndex = (() => {
+      const byName = new Map();
+      STORAGE_VARIABLES.forEach((item) => {
+        const label = storageVarLabel(item);
+        if (!label) return;
+        const name = label.split('.').pop() || label;
+        if (!name) return;
+        const list = byName.get(name) || [];
+        list.push(item);
+        byName.set(name, list);
+      });
+      return byName;
+    })();
+
+    const storageStructIndex = (() => {
+      const byName = new Map();
+      STORAGE_VARIABLES.forEach((item) => {
+        const structName = item?.struct?.name || '';
+        if (!structName || byName.has(structName)) return;
+        byName.set(structName, {
+          name: structName,
+          struct: item.struct,
+          source: item?.struct?.source || '',
+          kind: 'struct'
+        });
+      });
+      return byName;
+    })();
+
+    let varTooltipEl = null;
+
+    const getVarMetaMap = (tokenEl) => {
+      const block = tokenEl?.closest?.('.code-block');
+      if (!block) return null;
+      if (block._varMetaCache) return block._varMetaCache;
+      const raw = block.getAttribute('data-var-meta');
+      if (!raw) {
+        block._varMetaCache = null;
+        return null;
+      }
+      try {
+        block._varMetaCache = JSON.parse(raw);
+      } catch (_) {
+        block._varMetaCache = null;
+      }
+      return block._varMetaCache;
+    };
+
+    const getPrevMeaningfulSibling = (node) => {
+      let current = node?.previousSibling;
+      while (current) {
+        if (current.nodeType === Node.TEXT_NODE) {
+          if (current.textContent && current.textContent.trim()) return current;
+        } else if (current.nodeType === Node.ELEMENT_NODE) {
+          if (current.textContent && current.textContent.trim()) return current;
+        }
+        current = current.previousSibling;
+      }
+      return null;
+    };
+
+    const getMemberAccessBase = (tokenEl) => {
+      const prev = getPrevMeaningfulSibling(tokenEl);
+      if (!prev) return null;
+      const prevText = prev.textContent ? prev.textContent.trim() : '';
+      if (prev.nodeType === Node.ELEMENT_NODE) {
+        if (!prev.classList.contains('token-operator') || prevText !== '.') return null;
+      } else if (prev.nodeType === Node.TEXT_NODE) {
+        if (prevText !== '.') return null;
+      } else {
+        return null;
+      }
+      const base = getPrevMeaningfulSibling(prev);
+      if (!base || base.nodeType !== Node.ELEMENT_NODE) return null;
+      if (!base.classList.contains('variable-token')) return null;
+      return base;
+    };
+
+    const ensureVarTooltip = () => {
+      if (varTooltipEl) return varTooltipEl;
+      varTooltipEl = document.createElement('div');
+      varTooltipEl.id = 'var-tooltip';
+      varTooltipEl.className = 'var-tooltip';
+      varTooltipEl.innerHTML = `
+        <div class="var-tooltip-source" data-role="source"></div>
+      `;
+      document.body.appendChild(varTooltipEl);
+      return varTooltipEl;
+    };
+
+    const resolveVarRecordByName = (varName, tokenEl) => {
+      if (!varName) return null;
+      const localMap = getVarMetaMap(tokenEl);
+      const localRecord = localMap?.[varName];
+      if (localRecord) return localRecord;
+      const candidates = storageVarIndex.get(varName);
+      if (candidates && candidates.length) return candidates[0];
+      return storageStructIndex.get(varName) || null;
+    };
+
+    const resolveVarRecord = (tokenEl) => {
+      if (!tokenEl) return null;
+      const memberBase = getMemberAccessBase(tokenEl);
+      if (memberBase) {
+        const baseName = memberBase.getAttribute('data-var') || '';
+        const baseRecord = resolveVarRecordByName(baseName, memberBase);
+        if (baseRecord?.struct?.name || baseRecord?.struct?.source) {
+          return {
+            name: baseRecord?.struct?.name || '',
+            struct: baseRecord.struct,
+            source: baseRecord?.struct?.source || '',
+            kind: 'struct'
+          };
+        }
+      }
+      const varName = tokenEl.getAttribute('data-var') || '';
+      return resolveVarRecordByName(varName, tokenEl);
+    };
+
+    const positionVarTooltip = (tokenEl, tooltipEl) => {
+      tooltipEl.style.bottom = '0px';
+      tooltipEl.style.right = '0px';
+      tooltipEl.style.left = 'auto';
+      tooltipEl.style.top = 'auto';
+    };
+
+    const showVarTooltip = (tokenEl) => {
+      const record = resolveVarRecord(tokenEl);
+      if (!record) {
+        hideVarTooltip();
+        return;
+      }
+      const tooltip = ensureVarTooltip();
+
+      const sourceText = record?.source || record?.struct?.source || '';
+      // Increased max lines for better visibility
+      const sourceMarkup = renderTooltipSnippet(sourceText, 16, 800);
+
+      // Minimalist: Code ONLY. No headers.
+      tooltip.innerHTML = `
+        <div class="var-tooltip-source">
+           ${sourceMarkup || '<span class="text-slate-600 italic">// Source definition unavailable</span>'}
+        </div>
+      `;
+
+      tooltip.classList.add('is-visible');
+      positionVarTooltip(tokenEl, tooltip);
+    };
+
+    const hideVarTooltip = () => {
+      if (!varTooltipEl) return;
+      varTooltipEl.classList.remove('is-visible');
+    };
+
     const updateStorageSearchResults = () => {
       const resultsEl = document.getElementById('storage-search-results');
       if (!resultsEl) return;
@@ -2246,7 +2567,7 @@
               </div>
               <div class="flex flex-col">
                   <span data-role="fn-title" class="font-display text-xs truncate max-w-[200px] font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${label.split('.')[1] || label || 'unknown'}</span>
-                  ${meta ? `<span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${meta}</span>` : '' }
+                  ${meta ? `<span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${meta}</span>` : ''}
               </div>
             </div>
           </button>
@@ -2280,7 +2601,7 @@
         const label = fn?.signature || entryName;
         const shortLabel = fn?.name || entryName.split('(')[0] || entryName;
         return `
-          <button data-fn-id="${fnId}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${fnId && appState.activeFunctionId === fnId ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800' }">
+          <button data-fn-id="${fnId}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${fnId && appState.activeFunctionId === fnId ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
             <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
             <div class="relative z-10 flex items-center gap-3">
               <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${fnId && appState.activeFunctionId === fnId ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
@@ -2318,7 +2639,7 @@
       updateStorageWriters();
     };
 
-    const closeStoragePanel = ({refresh = true} = {}) => {
+    const closeStoragePanel = ({ refresh = true } = {}) => {
       if (!appState.storagePanelOpen) return;
       appState.storagePanelOpen = false;
       appState.rightCollapsed = true;
@@ -2457,13 +2778,13 @@
             <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${(Array.isArray(hotkeyConfig?.help) ? hotkeyConfig.help : []).map((entry) => {
-                  const label = entry?.label || '';
-                  const keys = Array.isArray(entry?.keys)
-                    ? entry.keys.map(normalizeCombo).filter(Boolean)
-                    : (entry?.action ? getActionCombos(entry.action) : []);
-                  const display = formatComboList(keys);
-                  if (!label || !display) return '';
-                  return `
+        const label = entry?.label || '';
+        const keys = Array.isArray(entry?.keys)
+          ? entry.keys.map(normalizeCombo).filter(Boolean)
+          : (entry?.action ? getActionCombos(entry.action) : []);
+        const display = formatComboList(keys);
+        if (!label || !display) return '';
+        return `
                   <div class="flex items-center justify-between px-3 py-2 border border-cyan-900/50 bg-cyan-950/20 rounded-sm shadow-[0_0_10px_rgba(6,182,212,0.08)]">
                     <div class="flex items-center gap-2">
                       <span class="px-2 py-1 border border-cyan-800/60 rounded-sm bg-cyan-900/30 font-display text-[10px] tracking-wide font-bold uppercase text-cyan-100 text-glow">${display}</span>
@@ -2471,7 +2792,7 @@
                     <span class="text-[9px] font-mono text-cyan-200 uppercase tracking-widest">${label}</span>
                   </div>
                 `;
-                }).join('')}
+      }).join('')}
               </div>
             </div>
           </div>
@@ -2506,8 +2827,8 @@
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
               ${fn.type === 'write'
-                ? iconSvg('zap', 'w-4 h-4 text-cyan-300')
-                : iconSvg('hexagon', 'w-4 h-4 text-slate-300')}
+          ? iconSvg('zap', 'w-4 h-4 text-cyan-300')
+          : iconSvg('hexagon', 'w-4 h-4 text-slate-300')}
             </div>
             <div class="flex flex-col">
               <span class="font-display font-bold tracking-wide text-sm text-cyan-200 text-glow">${fn.name}</span>
@@ -2606,8 +2927,8 @@
                                         <div class="relative z-10 flex items-center gap-3 min-w-0">
                                             <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${appState.activeFunctionId === fn.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
                                                 ${fn.type === 'write'
-                                                  ? iconSvg('zap', 'w-3 h-3')
-                                                  : iconSvg('hexagon', 'w-3 h-3')}
+          ? iconSvg('zap', 'w-3 h-3')
+          : iconSvg('hexagon', 'w-3 h-3')}
                                             </div>
                                             <div class="flex flex-col min-w-0">
                                                 <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
@@ -2653,7 +2974,7 @@
           .filter(([, count]) => count === 1)
           .map(([name]) => name)
       );
-      const functionInfo = {nameArityMap, uniqueNames};
+      const functionInfo = { nameArityMap, uniqueNames };
       return `
                 <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
                      <div class="h-full flex flex-col">
@@ -2867,7 +3188,7 @@
           }
           if (matchesAction(event, 'toggleRight')) {
             event.preventDefault();
-            closeStoragePanel({refresh: false});
+            closeStoragePanel({ refresh: false });
             appState.rightCollapsed = false;
             appState.lastAction = 'toggle-right';
             refreshRightSidebar(false);
@@ -2950,7 +3271,11 @@
       renderApp();
       appState.lastAction = 'idle';
       applyResponsiveGuard();
-      window.addEventListener('resize', applyResponsiveGuard);
+      window.addEventListener('resize', () => {
+        applyResponsiveGuard();
+        hideVarTooltip();
+      });
+      window.addEventListener('scroll', hideVarTooltip, true);
 
     });
 

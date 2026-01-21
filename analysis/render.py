@@ -24,6 +24,7 @@ def render_html(
     chain: str,
     address: str,
     title_contract: str,
+    extra_storage_vars: List[Dict[str, Any]] | None = None,
     output_dir: Path | None = None,
     progress_cb: ProgressCallback | None = None,
 ) -> Path:
@@ -44,6 +45,11 @@ def render_html(
             entry_name = entry.get("entry_point", "")
             if entry_name and entry_name not in writers:
                 writers.append(entry_name)
+    for var in extra_storage_vars or []:
+        qualified = var.get("qualified_name") or var.get("name", "")
+        if not qualified:
+            continue
+        storage_vars_map.setdefault(qualified, var)
 
     storage_vars = sorted(
         storage_vars_map.values(),

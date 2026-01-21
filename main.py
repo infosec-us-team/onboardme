@@ -18,6 +18,7 @@ from analysis.slither_env import (
 )
 from analysis.flow_walk import _iter_audited_contracts, build_entry_point_flows
 from analysis.render import render_html
+from analysis.state_vars import _state_var_record
 
 # Silence Slither logging to keep console output clean.
 logging.disable(logging.CRITICAL)
@@ -142,11 +143,23 @@ def generate_html(
         title_contract = audited_contracts[0].name
     else:
         title_contract = f"{chain}:{address}"
+
+    extra_storage_vars: List[Dict[str, Any]] = []
+    seen_vars: set[str] = set()
+    for contract in audited_contracts:
+        for var in getattr(contract, "state_variables", []) or []:
+            record = _state_var_record(var)
+            key = record.get("qualified_name") or record.get("name", "")
+            if not key or key in seen_vars:
+                continue
+            seen_vars.add(key)
+            extra_storage_vars.append(record)
     output_path = render_html(
         data,
         chain,
         address,
         title_contract,
+        extra_storage_vars=extra_storage_vars,
         output_dir=output_dir,
         progress_cb=progress_cb,
     )
