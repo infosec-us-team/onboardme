@@ -170,7 +170,8 @@
     }
 
     .token-modifier {
-      color: #22d3ee;
+      color: #06b6d4;
+      font-weight: 600;
     }
 
     .token-number {
@@ -544,7 +545,10 @@
 
     const parseSignatureArity = (signature = '') => {
       const openIdx = signature.indexOf('(');
-      if (openIdx === -1) return null;
+      if (openIdx === -1) {
+        if (/^\s*modifier\b/.test(signature)) return 0;
+        return null;
+      }
       const closeIdx = signature.indexOf(')', openIdx + 1);
       if (closeIdx === -1) return null;
       const inner = signature.slice(openIdx + 1, closeIdx).trim();
@@ -700,7 +704,7 @@
 
     const getDeclarationArityFromSource = (source = '', functionName = '') => {
       if (!source || !functionName) return null;
-      const regex = new RegExp(`\\bfunction\\s+${escapeRegex(functionName)}\\s*\\(`, 'm');
+      const regex = new RegExp(`\\b(?:function|modifier)\\s+${escapeRegex(functionName)}\\s*\\(`, 'm');
       const match = source.match(regex);
       if (!match || match.index == null) return null;
       const nameIndex = match.index + match[0].indexOf(functionName);
@@ -1404,7 +1408,7 @@
       return map;
     };
 
-    const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null, variableRecords = []) => {
+    const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null, variableRecords = [], originNodeId = '') => {
       const lineHeight = 'var(--code-line-height, 14px)';
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
       const functionNameArityMap = functionInfo?.nameArityMap || new Map();
@@ -1656,6 +1660,8 @@
 
       const isInRanges = (index, ranges) => ranges.some(([start, end]) => index >= start && index < end);
 
+      const originAttr = originNodeId ? ` data-fn-origin="${escapeHtml(originNodeId)}"` : '';
+
       const wrapVariables = (text, globalOffset = 0, signatureIndex) => {
         if (!text) return '';
         let result = '';
@@ -1676,7 +1682,7 @@
           } else if (inSignatureTail) {
             const resolvedKey = resolveFunctionLinkKey(name, 0, true);
             if (resolvedKey) {
-              result += `<button type="button" class="token-function function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+              result += `<button type="button" class="token-function function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(name)}"${originAttr}>${escapeHtml(name)}</button>`;
             } else {
               result += escapeHtml(name);
             }
@@ -1906,7 +1912,29 @@
               const arity = getCallArityFromLines(lines, lineIndex, absoluteStart + token.text.length);
               const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isEmit);
               if (resolvedKey) {
-                result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}">${escapeHtml(token.text)}</button>`;
+                const callPrefix = line.slice(0, token.start);
+                const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
+                const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
+                const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
+                  ? qualifiedMatch[1]
+                  : '';
+                const callMeta = isSuperCall
+                  ? ' data-fn-call="super"'
+                  : (callContract ? ` data-fn-call-contract="${escapeHtml(callContract)}"` : '');
+                result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}"${originAttr}${callMeta}>${escapeHtml(token.text)}</button>`;
+              } else {
+                result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+              }
+            } else {
+              result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+            }
+          } else if (token.className === 'token-modifier') {
+            const globalStart = lineOffsets[lineIndex] + baseOffset + token.start;
+            const inSignatureTail = signatureIndex && isInRanges(globalStart, signatureIndex.signatureTailRanges);
+            if (inSignatureTail) {
+              const resolvedKey = resolveFunctionLinkKey(token.text, 0, true);
+              if (resolvedKey) {
+                result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}"${originAttr}>${escapeHtml(token.text)}</button>`;
               } else {
                 result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
               }
@@ -2366,33 +2394,63 @@
                 <div class="node-body space-y-6">
                   <div class="node-body-inner space-y-6">
 
-                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords)}
+                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords, node.id)}
 
                   </div>
                 </div>
             `;
 
       return `
-                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
+                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-node-contract="${escapeHtmlGlobal(node.contractName || '')}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
                      ${neonCardMarkup('', '', content, 'w-full', true)}
                 </div>
             `;
     };
 
     // --- GLOBAL ACTIONS ---
-    const scrollFlowToFunctionKey = (key) => {
+    const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
       if (!key) return false;
       const mainFlow = document.getElementById('main-flow');
       if (!mainFlow) return false;
-      let target = mainFlow.querySelector(`[data-function-key="${key}"]`);
-      if (!target && !key.includes(':')) {
-        const matches = mainFlow.querySelectorAll(`[data-function-name="${key}"]`);
-        if (matches.length === 1) {
-          target = matches[0];
+      let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
+      if (!targets.length && !key.includes(':')) {
+        targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
+      }
+      if (!targets.length) return false;
+      let target = targets[0];
+      const pickNextByDepth = (candidates, originDepth) => {
+        if (!Number.isFinite(originDepth)) return candidates[0];
+        const ordered = candidates
+          .map((el) => ({ el, depth: Number(el.getAttribute('data-node-depth')) }))
+          .filter((item) => Number.isFinite(item.depth))
+          .sort((a, b) => a.depth - b.depth);
+        if (!ordered.length) return candidates[0];
+        const next = ordered.find((item) => item.depth > originDepth);
+        return next ? next.el : ordered[0].el;
+      };
+      if (originNodeId) {
+        const originEl = mainFlow.querySelector(`[data-node-id="${originNodeId}"]`);
+        const filtered = targets.filter((el) => el.getAttribute('data-node-id') !== originNodeId);
+        if (filtered.length) targets = filtered;
+        if (originEl) {
+          const originDepth = Number(originEl.getAttribute('data-node-depth'));
+          const originContractName = originContract || originEl.getAttribute('data-node-contract') || '';
+          let preferredTargets = targets;
+          if (callContract) {
+            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === callContract);
+            if (byContract.length) preferredTargets = byContract;
+          } else if (callKind === 'super') {
+            if (originContractName) {
+              const byContract = targets.filter((el) => el.getAttribute('data-node-contract') !== originContractName);
+              if (byContract.length) preferredTargets = byContract;
+            }
+          }
+          target = pickNextByDepth(preferredTargets, originDepth);
+        } else {
+          target = targets[0];
         }
       }
-      if (!target) return false;
-      const collapseKey = target.getAttribute('data-collapse-key');
+      const collapseKey = target?.getAttribute('data-collapse-key');
       if (collapseKey && target.classList.contains('node-collapsed')) {
         toggleNodeCollapse(collapseKey);
       }
@@ -2539,7 +2597,12 @@
       const target = event.target.closest('.function-link');
       if (!target) return;
       const key = target.getAttribute('data-fn-key');
-      if (scrollFlowToFunctionKey(key)) {
+      const originNodeId = target.getAttribute('data-fn-origin') || '';
+      const originNode = target.closest('[data-node-id]');
+      const originContract = originNode?.getAttribute('data-node-contract') || '';
+      const callKind = target.getAttribute('data-fn-call') || '';
+      const callContract = target.getAttribute('data-fn-call-contract') || '';
+      if (scrollFlowToFunctionKey(key, originNodeId, originContract, callKind, callContract)) {
         event.preventDefault();
         event.stopPropagation();
       }

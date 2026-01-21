@@ -225,6 +225,82 @@ def _resolve_unimplemented_call(
     return target
 
 
+def _resolve_override_call(
+    caller: Union[Function, Modifier],
+    call_obj: Any,
+    target: Union[Function, Modifier, None],
+    root_contract: Contract | None,
+) -> Union[Function, Modifier, None]:
+    """Resolve virtual calls to the most-derived override on the root contract."""
+    if target is None or root_contract is None:
+        return target
+    if not isinstance(target, Function):
+        return target
+    call_type = str(getattr(call_obj, "type_call", "") or "").lower()
+    if "super" in call_type:
+        return target
+    target_name = getattr(target, "name", None)
+    if target_name:
+        source_text = _source_text(caller)
+        if source_text:
+            super_pattern = r"\bsuper\s*\.\s*" + re.escape(target_name) + r"\s*\("
+            if re.search(super_pattern, source_text):
+                return target
+            contract_name = ""
+            if getattr(target, "contract_declarer", None) is not None:
+                contract_name = getattr(target.contract_declarer, "name", "") or ""
+            if contract_name:
+                contract_pattern = r"\b" + re.escape(contract_name) + r"\s*\.\s*" + re.escape(target_name) + r"\s*\("
+                if re.search(contract_pattern, source_text):
+                    return target
+    target_contract = getattr(target, "contract_declarer", None) or getattr(target, "contract", None)
+    if target_contract is root_contract:
+        return target
+
+    target_signature = getattr(target, "solidity_signature", None)
+    target_full_name = getattr(target, "full_name", None)
+    target_name = getattr(target, "name", None)
+    target_param_types = [str(getattr(p, "type", "")) for p in (getattr(target, "parameters", None) or [])]
+
+    def _matches_signature(fn: Function) -> bool:
+        fn_sig = getattr(fn, "solidity_signature", None)
+        if target_signature and fn_sig:
+            return fn_sig == target_signature
+        fn_full_name = getattr(fn, "full_name", None)
+        if target_full_name and fn_full_name:
+            return fn_full_name == target_full_name
+        fn_name = getattr(fn, "name", None)
+        if target_name and fn_name and fn_name != target_name:
+            return False
+        if target_param_types:
+            params = getattr(fn, "parameters", None) or []
+            return [str(getattr(p, "type", "")) for p in params] == target_param_types
+        return True
+
+    def _find_override(contract: Contract | None) -> Function | None:
+        if contract is None:
+            return None
+        candidates = list(getattr(contract, "functions_declared", []) or [])
+        for fn in getattr(contract, "functions", []) or []:
+            if fn not in candidates:
+                candidates.append(fn)
+        for fn in candidates:
+            if not _matches_signature(fn):
+                continue
+            if getattr(fn, "is_implemented", True):
+                return fn
+        return None
+
+    override = _find_override(root_contract)
+    if override is not None:
+        return override
+    for base in getattr(root_contract, "inheritance", []) or []:
+        override = _find_override(base)
+        if override is not None:
+            return override
+    return target
+
+
 def _call_target(call_obj: Any) -> Union[Function, Modifier, None]:
     candidate = None
     if isinstance(call_obj, tuple) and len(call_obj) >= 2:
@@ -310,12 +386,33 @@ def _walk_callable(
         "solidity_calls",
     )
 
-    all_calls = list(chain.from_iterable(getattr(item, attr, []) for attr in CALL_ATTRS))
+    ordered_calls: List[Any] = []
+    seen_call_keys: Set[tuple[str, int]] = set()
+
+    def _call_identity(call_obj: Any) -> tuple[str, int]:
+        target = _call_target(call_obj)
+        if target is not None:
+            return ("target", id(target))
+        return ("raw", id(call_obj))
+
+    def _add_call(call_obj: Any) -> None:
+        if call_obj is None:
+            return
+        key = _call_identity(call_obj)
+        if key in seen_call_keys:
+            return
+        seen_call_keys.add(key)
+        ordered_calls.append(call_obj)
+
     operations = getattr(item, "all_slithir_operations", None)
     if callable(operations):
         for ir in operations():
             if isinstance(ir, (InternalCall, HighLevelCall, LibraryCall)):
-                all_calls.append(ir)
+                _add_call(ir)
+
+    for attr in CALL_ATTRS:
+        for call in getattr(item, attr, []):
+            _add_call(call)
 
     # Fallback: scan source for internal/private calls Slither may miss.
     caller_contract = getattr(item, "contract_declarer", None) or getattr(item, "contract", None)
@@ -333,7 +430,7 @@ def _walk_callable(
             for match in re.finditer(r"\b(_[A-Za-z0-9_]*)\s*\(", source_text):
                 fallback_fn = fn_by_name.get(match.group(1))
                 if fallback_fn is not None:
-                    all_calls.append(fallback_fn)
+                    _add_call(fallback_fn)
 
     def _is_interface_target(target_item: Union[Function, Modifier, None]) -> bool:
         if target_item is None:
@@ -343,9 +440,10 @@ def _walk_callable(
         )
         return bool(contract is not None and getattr(contract, "is_interface", False))
 
-    for call in sorted(all_calls, key=_call_sort_key):
+    for call in ordered_calls:
         target = _call_target(call)
         target = _resolve_unimplemented_call(item, target, root_contract, all_contracts)
+        target = _resolve_override_call(item, call, target, root_contract)
         if _is_interface_target(target):
             continue
         _walk_callable(
