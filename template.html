@@ -730,14 +730,20 @@
       return `h${Math.abs(hash)}`;
     };
 
-    const getNodeCollapseKey = (node) => {
+    const getNodeCollapseKey = (node, { entryId = null } = {}) => {
       if (!node) return '';
       const code = (node.code || '').trim();
       const signature = (node.signature || node.functionName || node.name || '').trim();
       const contract = (node.contract || node.contractName || '').trim();
+      const scope = appState.stepByStepEnabled ? (entryId || appState.activeFunctionId || '') : '';
       // Cross-contract collapse should be driven by identical code; only fall back to per-contract IDs.
       const basis = code || (signature ? `${signature}|${contract}` : '');
-      return basis ? hashString(basis) : normalizeId(node.id || 'node');
+      if (basis) {
+        const scopedBasis = scope ? `${scope}::${basis}` : basis;
+        return hashString(scopedBasis);
+      }
+      const fallback = normalizeId(node.id || 'node');
+      return scope ? hashString(`${scope}::${fallback}`) : fallback;
     };
 
     const extractParamNames = (source = '') => {
@@ -983,11 +989,11 @@
       if (!appState.stepByStepEnabled) return;
       try {
         if (hydrated?.callGraphs) {
-          Object.values(hydrated.callGraphs).forEach((graph) => {
+          Object.entries(hydrated.callGraphs).forEach(([entryId, graph]) => {
             if (!Array.isArray(graph)) return;
             graph.forEach((node, index) => {
               if (index === 0) return;
-              const key = getNodeCollapseKey(node);
+              const key = getNodeCollapseKey(node, { entryId });
               if (!key || collapsedNodeIds.has(key)) return;
               collapsedNodeIds.add(key);
               touchCollapsedKey(key);
@@ -2320,7 +2326,7 @@
       // Analyst notes feature removed
 
       // State modifications widget removed per request
-      const collapseKey = getNodeCollapseKey(node);
+      const collapseKey = getNodeCollapseKey(node, { entryId: appState.activeFunctionId });
       const isEntryPointNode = node?.depth === 0;
       const collapsed = isEntryPointNode ? false : isNodeCollapsed(collapseKey);
       if (isEntryPointNode && isNodeCollapsed(collapseKey)) {
@@ -3352,7 +3358,7 @@
       const graph = callGraphs[appState.activeFunctionId] || [];
       return graph.reduce((acc, node) => {
         if (node?.depth === 0) return acc;
-        return acc + (isNodeCollapsed(getNodeCollapseKey(node)) ? 1 : 0);
+        return acc + (isNodeCollapsed(getNodeCollapseKey(node, { entryId: appState.activeFunctionId })) ? 1 : 0);
       }, 0);
     };
 
