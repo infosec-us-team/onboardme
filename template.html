@@ -718,6 +718,7 @@
       return `${AUDIT_STORAGE_KEY}:${address}`;
     };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
+    const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
     const getCollapsedStorageKey = () => {
       return COLLAPSED_STORAGE_KEY;
     };
@@ -776,6 +777,16 @@
       }
     };
 
+    const loadHideCollapsed = () => {
+      try {
+        const raw = localStorage.getItem(HIDE_COLLAPSED_STORAGE_KEY);
+        if (raw === null) return;
+        setHideCollapsed(raw === 'true');
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
     const touchCollapsedKey = (collapseKey) => {
       const idx = collapsedNodeOrder.indexOf(collapseKey);
       if (idx !== -1) collapsedNodeOrder.splice(idx, 1);
@@ -824,6 +835,11 @@
     const setHideCollapsed = (next) => {
       appState.hideCollapsed = Boolean(next);
       document.body.classList.toggle('hide-collapsed', appState.hideCollapsed);
+      try {
+        localStorage.setItem(HIDE_COLLAPSED_STORAGE_KEY, appState.hideCollapsed ? 'true' : 'false');
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
     };
 
     const toggleHideCollapsed = () => {
@@ -3144,6 +3160,7 @@
       loadCodeFontSize();
       loadAuditMarks();
       loadCollapsedNodes();
+      loadHideCollapsed();
       await loadHotkeyConfig();
       const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
       functionList = hydrated.functions;
