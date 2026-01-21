@@ -23,6 +23,15 @@ from slither.slithir.variables.reference import ReferenceVariable
 from analysis.slither_extract import _source_text
 
 
+def _attach_struct_info(record: Dict[str, Any], vtype: Any) -> None:
+    if isinstance(vtype, UserDefinedType) and isinstance(vtype.type, Structure):
+        struct = vtype.type
+        record["struct"] = {
+            "name": getattr(struct, "name", ""),
+            "source": _source_text(struct),
+        }
+
+
 def _state_var_record(var: Any) -> Dict[str, Any]:
     """Return JSON-serializable info for a state variable, including its source code."""
     contract = getattr(var, "contract", None) or getattr(var, "contract_declarer", None)
@@ -35,16 +44,89 @@ def _state_var_record(var: Any) -> Dict[str, Any]:
         "qualified_name": qualified_name,
         "type": str(getattr(var, "type", "")),
         "source": _source_text(var),
+        "is_constant": bool(getattr(var, "is_constant", False)),
+        "is_immutable": bool(getattr(var, "is_immutable", False)),
     }
 
     vtype = getattr(var, "type", None)
-    if isinstance(vtype, UserDefinedType) and isinstance(vtype.type, Structure):
-        struct = vtype.type
-        record["struct"] = {
-            "name": getattr(struct, "name", ""),
-            "source": _source_text(struct),
-        }
+    _attach_struct_info(record, vtype)
     return record
+
+
+def _local_var_record(
+    var: LocalVariable,
+    scope: str,
+    contract: Any | None = None,
+    function_name: str | None = None,
+) -> Dict[str, Any]:
+    contract_name = getattr(contract, "name", "") if contract else ""
+    var_name = getattr(var, "name", "") or ""
+    type_str = str(getattr(var, "type", "")) if var is not None else ""
+    qualified_parts = [p for p in (contract_name, function_name, var_name) if p]
+    qualified_name = ".".join(qualified_parts) if qualified_parts else var_name
+    source = _source_text(var)
+    if not source:
+        init_expr = getattr(var, "expression", None)
+        init_str = f" = {init_expr}" if init_expr is not None else ""
+        source = f"{type_str} {var_name}{init_str}".strip()
+    record: Dict[str, Any] = {
+        "name": var_name,
+        "contract": contract_name,
+        "qualified_name": qualified_name,
+        "type": type_str,
+        "source": source,
+        "scope": scope,
+        "is_storage": bool(getattr(var, "is_storage", False)),
+    }
+    _attach_struct_info(record, getattr(var, "type", None))
+    return record
+
+
+def _collect_local_and_param_vars(item: Union[Function, Modifier]) -> List[Dict[str, Any]]:
+    """Collect local and parameter variables with type/source info for tooltips."""
+    if item is None:
+        return []
+    contract = getattr(item, "contract_declarer", None) or getattr(item, "contract", None)
+    function_name = getattr(item, "name", None) or getattr(item, "full_name", None)
+    params = list(getattr(item, "parameters", []) or [])
+    locals_vars = list(getattr(item, "local_variables", []) or [])
+    state_vars = set(getattr(contract, "state_variables", []) or []) if contract else set()
+
+    param_set = {p for p in params if isinstance(p, LocalVariable)}
+    alias_map = _build_storage_aliases(item, param_set, state_vars) if param_set else {}
+
+    records: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    for param in params:
+        if not isinstance(param, LocalVariable):
+            continue
+        record = _local_var_record(param, "parameter", contract, function_name)
+        key = record.get("name") or ""
+        if key and key not in seen:
+            seen.add(key)
+            records.append(record)
+
+    for local in locals_vars:
+        if not isinstance(local, LocalVariable):
+            continue
+        scope = "storage_local" if getattr(local, "is_storage", False) else "local"
+        record = _local_var_record(local, scope, contract, function_name)
+        base = alias_map.get(local)
+        if isinstance(base, StateVariable):
+            record["storage_base"] = _state_var_record(base)
+        elif isinstance(base, LocalVariable):
+            record["storage_base"] = {
+                "name": getattr(base, "name", ""),
+                "type": str(getattr(base, "type", "")),
+                "scope": "parameter" if base in param_set else "local",
+            }
+        key = record.get("name") or ""
+        if key and key not in seen:
+            seen.add(key)
+            records.append(record)
+
+    return records
 
 
 def _collect_state_vars(item: Union[Function, Modifier], kind: str) -> List[Dict[str, Any]]:

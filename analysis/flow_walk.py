@@ -28,6 +28,7 @@ from analysis.slither_extract import (
     _source_text,
 )
 from analysis.state_vars import (
+    _collect_local_and_param_vars,
     _collect_state_vars,
     _collect_state_vars_via_storage_params,
     _state_var_record,
@@ -496,6 +497,9 @@ def build_entry_point_flows(
                         reported_unimplemented.add(item["name"])
                 # Capture data dependencies for every function in the flow.
                 item["data_dependencies"] = _collect_data_dependencies(target_fn)
+                item["variable_records"] = (
+                    _collect_local_and_param_vars(target_fn) if target_fn else []
+                )
 
             _report_progress(
                 progress_cb,
