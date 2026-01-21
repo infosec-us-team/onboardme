@@ -33,6 +33,7 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 - 🛠️ Local UI + API (`/generate`) and CLI generation (`python main.py`)
 - 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
 - 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
+- 🪜 Step-by-step mode to reveal internal calls as needed (Shift+T or `?` menu)
 
 ## 🧩 Understand the UI layout
 
@@ -79,6 +80,12 @@ This is especially useful for common modifiers like `onlyRole` and other repeate
 Hover or click any variable inside a function to highlight every occurrence. Storage variables glow red, memory variables glow blue.
 
 <img src="./resources/2.gif" alt="" style="width:600px; height:auto;">
+
+### 🧭 Step-by-Step Mode
+
+Step-by-step mode is built into the UI. Open the `?` hotkey menu to toggle it, or press Shift+T.
+
+This is especially helpful when auditing complex entry points that fan out into many internal calls. Instead of scrolling a long list of functions, you can reveal only the pieces you need as you go, keeping the flow readable and focused.
 
 ### ⌨️ Shortcuts
 
