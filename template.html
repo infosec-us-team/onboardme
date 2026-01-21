@@ -392,6 +392,10 @@
       transform: translateY(-6px);
       pointer-events: none;
     }
+
+    body.hide-collapsed .node-widget.node-collapsed {
+      display: none;
+    }
   </style>
 </head>
 
@@ -735,6 +739,7 @@
       },
       hotkeysOpen: false,
       showAudited: true,
+      hideCollapsed: false,
       codeFontSize: CODE_FONT_DEFAULT
     };
 
@@ -814,6 +819,15 @@
         }
       });
       persistCollapsedNodes();
+    };
+
+    const setHideCollapsed = (next) => {
+      appState.hideCollapsed = Boolean(next);
+      document.body.classList.toggle('hide-collapsed', appState.hideCollapsed);
+    };
+
+    const toggleHideCollapsed = () => {
+      setHideCollapsed(!appState.hideCollapsed);
     };
 
     const loadAuditMarks = () => {
@@ -3208,6 +3222,9 @@
         if (matchesAction(event, 'toggleAuditFilter')) {
           event.preventDefault();
           toggleAuditFilter();
+        } else if (matchesAction(event, 'toggleHideCollapsed')) {
+          event.preventDefault();
+          toggleHideCollapsed();
         } else if (matchesAction(event, 'toggleLeft')) {
           event.preventDefault();
           toggleSidebar('left');
