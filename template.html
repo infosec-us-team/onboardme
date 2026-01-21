@@ -538,7 +538,9 @@
       return name.trim();
     };
 
-    const normalizeFunctionKey = (text = '') => baseFunctionName(text).toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const normalizeFunctionKey = (text = '') => baseFunctionName(text).toLowerCase().replace(/[^a-z0-9_]+/g, '');
+
+    const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const parseSignatureArity = (signature = '') => {
       const openIdx = signature.indexOf('(');
@@ -548,6 +550,175 @@
       const inner = signature.slice(openIdx + 1, closeIdx).trim();
       if (!inner) return 0;
       return inner.split(',').map((part) => part.trim()).filter(Boolean).length;
+    };
+
+    const getCallArityFromLinesGlobal = (lines, lineIndex, fromIndex) => {
+      let lineIdx = lineIndex;
+      let i = fromIndex;
+      let inSingle = false;
+      let inDouble = false;
+      let inTemplate = false;
+      let inBlockComment = false;
+      let escape = false;
+      const nextChar = () => {
+        while (lineIdx < lines.length) {
+          const line = lines[lineIdx];
+          if (i >= line.length) {
+            lineIdx += 1;
+            i = 0;
+            continue;
+          }
+          return line[i++];
+        }
+        return null;
+      };
+
+      const peekChar = () => {
+        if (lineIdx >= lines.length) return null;
+        const line = lines[lineIdx];
+        if (i >= line.length) return '\n';
+        return line[i];
+      };
+
+      const skipWhitespaceAndComments = () => {
+        let ch = peekChar();
+        while (ch !== null) {
+          if (inBlockComment) {
+            const next = nextChar();
+            if (next === '*' && peekChar() === '/') {
+              nextChar();
+              inBlockComment = false;
+            }
+            ch = peekChar();
+            continue;
+          }
+          if (ch === '\n' || (ch !== null && /\s/.test(ch))) {
+            nextChar();
+            ch = peekChar();
+            continue;
+          }
+          if (ch === '/' && lines[lineIdx]?.[i + 1] === '/') {
+            lineIdx += 1;
+            i = 0;
+            ch = peekChar();
+            continue;
+          }
+          if (ch === '/' && lines[lineIdx]?.[i + 1] === '*') {
+            nextChar();
+            nextChar();
+            inBlockComment = true;
+            ch = peekChar();
+            continue;
+          }
+          break;
+        }
+        return ch;
+      };
+
+      const first = skipWhitespaceAndComments();
+      if (first !== '(') return null;
+      nextChar();
+
+      let depth = 1;
+      let count = 0;
+      let sawToken = false;
+
+      while (true) {
+        const ch = nextChar();
+        if (ch === null) return null;
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (inBlockComment) {
+          if (ch === '*' && peekChar() === '/') {
+            nextChar();
+            inBlockComment = false;
+          }
+          continue;
+        }
+        if (inSingle) {
+          if (ch === "\\") escape = true;
+          else if (ch === "'") inSingle = false;
+          continue;
+        }
+        if (inDouble) {
+          if (ch === "\\") escape = true;
+          else if (ch === '"') inDouble = false;
+          continue;
+        }
+        if (inTemplate) {
+          if (ch === "\\") escape = true;
+          else if (ch === "`") inTemplate = false;
+          continue;
+        }
+        if (ch === "'") {
+          inSingle = true;
+          continue;
+        }
+        if (ch === '"') {
+          inDouble = true;
+          continue;
+        }
+        if (ch === "`") {
+          inTemplate = true;
+          continue;
+        }
+        if (ch === '/' && peekChar() === '/') {
+          lineIdx += 1;
+          i = 0;
+          continue;
+        }
+        if (ch === '/' && peekChar() === '*') {
+          nextChar();
+          inBlockComment = true;
+          continue;
+        }
+        if (ch === '(') {
+          depth += 1;
+          continue;
+        }
+        if (ch === ')') {
+          depth -= 1;
+          if (depth === 0) {
+            return sawToken ? count + 1 : 0;
+          }
+          continue;
+        }
+        if (depth === 1) {
+          if (ch === ',') {
+            count += 1;
+            sawToken = false;
+            continue;
+          }
+          if (!/\s/.test(ch)) {
+            sawToken = true;
+          }
+        }
+      }
+    };
+
+    const getDeclarationArityFromSource = (source = '', functionName = '') => {
+      if (!source || !functionName) return null;
+      const regex = new RegExp(`\\bfunction\\s+${escapeRegex(functionName)}\\s*\\(`, 'm');
+      const match = source.match(regex);
+      if (!match || match.index == null) return null;
+      const nameIndex = match.index + match[0].indexOf(functionName);
+      if (nameIndex < 0) return null;
+      const lines = source.split('\n');
+      let offset = 0;
+      let lineIndex = 0;
+      let column = 0;
+      for (let i = 0; i < lines.length; i += 1) {
+        const lineLen = lines[i].length + 1;
+        if (nameIndex < offset + lineLen) {
+          lineIndex = i;
+          column = nameIndex - offset;
+          break;
+        }
+        offset += lineLen;
+      }
+      return getCallArityFromLinesGlobal(lines, lineIndex, column + functionName.length);
     };
 
     const hashString = (value = '') => {
@@ -719,6 +890,7 @@
     };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
+    const STEP_BY_STEP_STORAGE_KEY = 'stepByStepMode';
     const getCollapsedStorageKey = () => {
       return COLLAPSED_STORAGE_KEY;
     };
@@ -741,11 +913,29 @@
       hotkeysOpen: false,
       showAudited: true,
       hideCollapsed: false,
-      codeFontSize: CODE_FONT_DEFAULT
+      codeFontSize: CODE_FONT_DEFAULT,
+      stepByStepEnabled: false
     };
 
     let auditedFunctionIds = new Set();
+    const loadStepByStepPreference = () => {
+      try {
+        const raw = localStorage.getItem(STEP_BY_STEP_STORAGE_KEY);
+        if (raw === null) return false;
+        return raw === 'true';
+      } catch (_) {
+        return false;
+      }
+    };
+
+    const clearCollapsedNodes = () => {
+      collapsedNodeIds = new Set();
+      collapsedNodeOrder = [];
+    };
+    const shouldPersistCollapseState = () => !appState.stepByStepEnabled;
+
     const loadCollapsedNodes = () => {
+      if (!shouldPersistCollapseState()) return;
       try {
         const raw = localStorage.getItem(getCollapsedStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
@@ -770,6 +960,7 @@
     };
 
     const persistCollapsedNodes = () => {
+      if (!shouldPersistCollapseState()) return;
       try {
         localStorage.setItem(getCollapsedStorageKey(), JSON.stringify(collapsedNodeOrder));
       } catch (_) {
@@ -778,6 +969,7 @@
     };
 
     const loadHideCollapsed = () => {
+      if (!shouldPersistCollapseState()) return;
       try {
         const raw = localStorage.getItem(HIDE_COLLAPSED_STORAGE_KEY);
         if (raw === null) return;
@@ -785,6 +977,55 @@
       } catch (_) {
         // Storage might be unavailable; ignore silently.
       }
+    };
+
+    const applyStepByStepDefaults = (hydrated) => {
+      if (!appState.stepByStepEnabled) return;
+      try {
+        if (hydrated?.callGraphs) {
+          Object.values(hydrated.callGraphs).forEach((graph) => {
+            if (!Array.isArray(graph)) return;
+            graph.forEach((node, index) => {
+              if (index === 0) return;
+              const key = getNodeCollapseKey(node);
+              if (!key || collapsedNodeIds.has(key)) return;
+              collapsedNodeIds.add(key);
+              touchCollapsedKey(key);
+            });
+          });
+        }
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+      try {
+        setHideCollapsed(true);
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const setStepByStepMode = (enabled) => {
+      const next = Boolean(enabled);
+      if (appState.stepByStepEnabled === next) return;
+      appState.stepByStepEnabled = next;
+      try {
+        localStorage.setItem(STEP_BY_STEP_STORAGE_KEY, next ? 'true' : 'false');
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+      if (next) {
+        clearCollapsedNodes();
+        applyStepByStepDefaults({ callGraphs });
+      } else {
+        clearCollapsedNodes();
+        setHideCollapsed(false, { persist: false });
+        loadCollapsedNodes();
+        loadHideCollapsed();
+        updateExecutionStreamLabel();
+      }
+      refreshMainFlow();
+      refreshRightSidebar(false);
+      updateHotkeyStatus();
     };
 
     const touchCollapsedKey = (collapseKey) => {
@@ -808,6 +1049,9 @@
       if (!collapseKey) return;
       const widgets = document.querySelectorAll(`[data-collapse-key="${collapseKey}"]`);
       if (!widgets.length) return;
+      if (Array.from(widgets).some((widget) => widget.getAttribute('data-node-depth') === '0')) {
+        return;
+      }
       const isCollapsed = widgets[0].classList.contains('node-collapsed');
 
       if (isCollapsed) {
@@ -830,11 +1074,17 @@
         }
       });
       persistCollapsedNodes();
+      if (appState.hideCollapsed) {
+        updateExecutionStreamLabel();
+      }
     };
 
-    const setHideCollapsed = (next) => {
+    const setHideCollapsed = (next, { persist = true } = {}) => {
       appState.hideCollapsed = Boolean(next);
       document.body.classList.toggle('hide-collapsed', appState.hideCollapsed);
+      updateExecutionStreamLabel();
+      updateHotkeyStatus();
+      if (!persist || !shouldPersistCollapseState()) return;
       try {
         localStorage.setItem(HIDE_COLLAPSED_STORAGE_KEY, appState.hideCollapsed ? 'true' : 'false');
       } catch (_) {
@@ -1185,6 +1435,32 @@
         while (i >= 0 && /\s/.test(text[i])) i -= 1;
         if (i < 0 || text[i] !== '.') return false;
         if (name === 'length') return true;
+        if (name === 'max' || name === 'min') {
+          let j = i - 1;
+          while (j >= 0 && /\s/.test(text[j])) j -= 1;
+          if (j >= 0 && text[j] === ')') {
+            let depth = 0;
+            let k = j;
+            while (k >= 0) {
+              const ch = text[k];
+              if (ch === ')') depth += 1;
+              else if (ch === '(') {
+                depth -= 1;
+                if (depth === 0) break;
+              }
+              k -= 1;
+            }
+            if (k >= 0) {
+              let t = k - 1;
+              while (t >= 0 && /\s/.test(text[t])) t -= 1;
+              const start = t - 3;
+              if (start >= 0 && text.slice(start, t + 1) === 'type') {
+                const prev = start > 0 ? text[start - 1] : '';
+                if (!/[$\w\xA0-\uFFFF]/.test(prev)) return true;
+              }
+            }
+          }
+        }
         i -= 1;
         while (i >= 0 && /\s/.test(text[i])) i -= 1;
         if (i < 0) return false;
@@ -1547,6 +1823,12 @@
         return /(?:^|[^a-zA-Z0-9_])function\s*$/.test(prefix);
       };
 
+      const isEmitCall = (fullLine, absoluteStart) => {
+        if (!fullLine || absoluteStart == null) return false;
+        const prefix = fullLine.slice(0, absoluteStart);
+        return /(?:^|[^a-zA-Z0-9_])emit\s*$/.test(prefix);
+      };
+
       const highlightLine = (line, lineIndex, baseOffset = 0, fullLine = line) => {
         const tokenPatterns = [
           { className: 'token-comment', regex: /\/\/.*/g },
@@ -1599,10 +1881,11 @@
             if (tokenKey && functionInfo) {
               const absoluteStart = baseOffset + token.start;
               const isDeclaration = isFunctionDeclaration(fullLine, absoluteStart);
+              const isEmit = isEmitCall(fullLine, absoluteStart);
               const arity = getCallArityFromLines(lines, lineIndex, absoluteStart + token.text.length);
               const aritySet = functionNameArityMap.get(tokenKey);
-              const hasArityMatch = !isDeclaration && arity !== null && aritySet && aritySet.has(arity);
-              const isUniqueName = !isDeclaration && uniqueFunctionNames.has(tokenKey);
+              const hasArityMatch = !isDeclaration && !isEmit && arity !== null && aritySet && aritySet.has(arity);
+              const isUniqueName = !isDeclaration && !isEmit && uniqueFunctionNames.has(tokenKey);
               const resolvedKey = hasArityMatch
                 ? `${tokenKey}:${arity}`
                 : (isUniqueName ? tokenKey : '');
@@ -2028,9 +2311,17 @@
 
       // State modifications widget removed per request
       const collapseKey = getNodeCollapseKey(node);
-      const collapsed = isNodeCollapsed(collapseKey);
+      const isEntryPointNode = node?.depth === 0;
+      const collapsed = isEntryPointNode ? false : isNodeCollapsed(collapseKey);
+      if (isEntryPointNode && isNodeCollapsed(collapseKey)) {
+        collapsedNodeIds.delete(collapseKey);
+        const idx = collapsedNodeOrder.indexOf(collapseKey);
+        if (idx !== -1) collapsedNodeOrder.splice(idx, 1);
+        persistCollapsedNodes();
+      }
       const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
-      const arity = parseSignatureArity(node.signature || '');
+      const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
+        ?? parseSignatureArity(node.signature || '');
       const functionKey = arity === null ? nameKey : `${nameKey}:${arity}`;
       const safeName = node.name || node.functionName || node.signature || 'Unknown';
       const content = `
@@ -2066,7 +2357,7 @@
             `;
 
       return `
-                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
+                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
                      ${neonCardMarkup('', '', content, 'w-full', true)}
                 </div>
             `;
@@ -2733,7 +3024,7 @@
             <rect width="100%" height="100%" fill="url(#popup-grid)" />
           </svg>
         </div>
-        <div class="absolute inset-0 flex items-start justify-center pt-24 px-4 md:px-8">
+        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
           <div class="relative w-full max-w-3xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
             <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
@@ -2802,10 +3093,10 @@
             <rect width="100%" height="100%" fill="url(#hotkey-grid)" />
           </svg>
         </div>
-        <div class="absolute inset-0 flex items-start justify-center pt-24 px-4 md:px-8">
+        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8">
           <div class="relative w-full max-w-2xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden max-h-[80vh] overflow-y-auto custom-scrollbar">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${(Array.isArray(hotkeyConfig?.help) ? hotkeyConfig.help : []).map((entry) => {
         const label = entry?.label || '';
@@ -2824,12 +3115,72 @@
                 `;
       }).join('')}
               </div>
+              <div id="hotkey-status" class="px-4 py-3 border-t border-cyan-900/40 flex flex-col gap-3 hidden">
+                <div class="flex items-center gap-3">
+                  <div class="min-w-0">
+                    <div class="text-[9px] font-display uppercase tracking-[0.25em] text-cyan-200">Hide collapsed functions</div>
+                    <div class="text-[8px] font-mono tracking-[0.2em] text-cyan-700/70">Hides collapsed cards from the execution stream.</div>
+                  </div>
+                  <div class="flex-1 border-t border-dashed border-cyan-900/60"></div>
+                  <button id="hotkey-toggle-hide" type="button" class="w-10 h-4 rounded-full border border-cyan-900/70 bg-[#07101b] relative transition-colors">
+                    <span class="absolute top-[1px] left-[1px] w-3 h-3 rounded-full bg-cyan-900/60 shadow-[0_0_6px_rgba(6,182,212,0.25)] transition-all"></span>
+                  </button>
+                </div>
+                <div class="flex items-center gap-3">
+                  <div class="min-w-0">
+                    <div class="text-[9px] font-display uppercase tracking-[0.25em] text-cyan-200">Step-by-step mode</div>
+                    <div class="text-[8px] font-mono tracking-[0.2em] text-cyan-700/70">Starts with only the entry point expanded.</div>
+                  </div>
+                  <div class="flex-1 border-t border-dashed border-cyan-900/60"></div>
+                  <button id="hotkey-toggle-step" type="button" class="w-10 h-4 rounded-full border border-cyan-900/70 bg-[#07101b] relative transition-colors">
+                    <span class="absolute top-[1px] left-[1px] w-3 h-3 rounded-full bg-cyan-900/60 shadow-[0_0_6px_rgba(6,182,212,0.25)] transition-all"></span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       `;
       document.body.appendChild(hotkeyHelpEl);
+      const toggleBtn = hotkeyHelpEl.querySelector('#hotkey-toggle-hide');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleHideCollapsed();
+        });
+      }
+      const stepBtn = hotkeyHelpEl.querySelector('#hotkey-toggle-step');
+      if (stepBtn) {
+        stepBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setStepByStepMode(!appState.stepByStepEnabled);
+        });
+      }
       return hotkeyHelpEl;
+    };
+
+    const updateHotkeyStatus = () => {
+      if (!hotkeyHelpEl) return;
+      const statusEl = hotkeyHelpEl.querySelector('#hotkey-status');
+      const toggleBtn = hotkeyHelpEl.querySelector('#hotkey-toggle-hide');
+      const stepBtn = hotkeyHelpEl.querySelector('#hotkey-toggle-step');
+      if (!statusEl || !toggleBtn || !stepBtn) return;
+      const setToggleStyles = (btn, enabled) => {
+        const dot = btn.querySelector('span');
+        btn.className = enabled
+          ? 'ml-auto w-10 h-4 rounded-full border border-cyan-300/80 bg-gradient-to-r from-cyan-500/30 via-cyan-400/10 to-transparent relative shadow-[0_0_8px_rgba(6,182,212,0.35)] transition-colors'
+          : 'ml-auto w-10 h-4 rounded-full border border-cyan-900/70 bg-[#07101b] relative transition-colors';
+        if (dot) {
+          dot.className = enabled
+            ? 'absolute top-[1px] left-[1.5rem] w-3 h-3 rounded-full bg-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.6)] transition-all'
+            : 'absolute top-[1px] left-[1px] w-3 h-3 rounded-full bg-cyan-900/60 shadow-[0_0_6px_rgba(6,182,212,0.25)] transition-all';
+        }
+      };
+      statusEl.classList.remove('hidden');
+      setToggleStyles(toggleBtn, appState.hideCollapsed);
+      setToggleStyles(stepBtn, appState.stepByStepEnabled);
     };
 
     const updateSearchHighlight = () => {
@@ -2909,6 +3260,7 @@
     const openHotkeyHelp = () => {
       ensureHotkeyHelp();
       appState.hotkeysOpen = true;
+      updateHotkeyStatus();
       hotkeyHelpEl.classList.remove('hidden');
     };
 
@@ -2985,16 +3337,42 @@
             `;
     };
 
+    const getHiddenCollapsedCount = () => {
+      if (!appState.hideCollapsed) return 0;
+      const graph = callGraphs[appState.activeFunctionId] || [];
+      return graph.reduce((acc, node) => {
+        if (node?.depth === 0) return acc;
+        return acc + (isNodeCollapsed(getNodeCollapseKey(node)) ? 1 : 0);
+      }, 0);
+    };
+
+    const updateExecutionStreamLabel = () => {
+      const label = document.getElementById('execution-stream-label');
+      if (!label) return;
+      const hiddenCount = getHiddenCollapsedCount();
+      if (appState.hideCollapsed && hiddenCount) {
+        if (appState.stepByStepEnabled) {
+          label.innerHTML = `<strong>Step-by-step Mode Is Active:</strong> Click on a function to display its implementation.`;
+        } else {
+          label.textContent = `${hiddenCount} functions are hidden. Press Shift+H to display them.`;
+        }
+      } else {
+        label.textContent = 'End of Execution Stream';
+      }
+    };
+
     const buildMainFlow = (isEntrySwitch) => {
       const graph = callGraphs[appState.activeFunctionId] || [];
-      const mainAnimationClass = isEntrySwitch ? '' : 'animate-fadeIn';
+      const mainAnimationClass = (isEntrySwitch || appState.stepByStepEnabled) ? '' : 'animate-fadeIn';
+      const hiddenCollapsedCount = getHiddenCollapsedCount();
       const nameArityMap = new Map();
       const nameCounts = new Map();
       graph.forEach((node) => {
         const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
         if (!nameKey) return;
         nameCounts.set(nameKey, (nameCounts.get(nameKey) || 0) + 1);
-        const arity = parseSignatureArity(node.signature || '');
+        const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
+          ?? parseSignatureArity(node.signature || '');
         if (arity === null) return;
         if (!nameArityMap.has(nameKey)) nameArityMap.set(nameKey, new Set());
         nameArityMap.get(nameKey).add(arity);
@@ -3005,16 +3383,25 @@
           .map(([name]) => name)
       );
       const functionInfo = { nameArityMap, uniqueNames };
+      const flowMarkup = graph
+        .map((node, i) => renderNodeWidget(node, i, !isEntrySwitch && !appState.stepByStepEnabled, functionInfo))
+        .join('');
       return `
                 <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
                      <div class="h-full flex flex-col">
                         <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
                             <div class="mx-auto">
-                                ${graph.map((node, i) => renderNodeWidget(node, i, !isEntrySwitch, functionInfo)).join('')}
+                                ${flowMarkup}
                                 <div class="pl-8 pt-4 pb-12 opacity-50 flex items-center gap-4 animate-pulse">
                                     <div class="w-3 h-3 rounded-full bg-slate-800 border border-slate-600"></div>
                                     <div class="h-px w-20 bg-gradient-to-r from-slate-600 to-transparent"></div>
-                                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">End of Execution Stream</span>
+                                    <span id="execution-stream-label" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">${
+        appState.hideCollapsed && hiddenCollapsedCount
+          ? (appState.stepByStepEnabled
+            ? `<strong>Step-by-step Mode Is Active.</strong> Click on a function to display its implementation.`
+            : `${hiddenCollapsedCount} functions are hidden. Press Shift+H to display them.`)
+          : 'End of Execution Stream'
+      }</span>
                                 </div>
                             </div>
                         </div>
@@ -3055,22 +3442,34 @@
             `;
     };
 
+    const shouldAnimateTyping = () => {
+      const graph = callGraphs[appState.activeFunctionId] || [];
+      return !appState.stepByStepEnabled && graph.length <= 5;
+    };
+
     const refreshMainFlow = () => {
       const mainEl = document.getElementById('main-flow');
       if (mainEl) mainEl.outerHTML = buildMainFlow(true);
-      document.querySelectorAll('.typing-text').forEach(el => {
-        const text = el.getAttribute('data-text');
-        el.innerText = '';
-        let i = 0;
-        const interval = setInterval(() => {
-          if (i < text.length) {
-            el.innerText += text.charAt(i);
-            i++;
-          } else {
-            clearInterval(interval);
-          }
-        }, 20);
-      });
+      if (shouldAnimateTyping()) {
+        document.querySelectorAll('.typing-text').forEach(el => {
+          const text = el.getAttribute('data-text');
+          el.innerText = '';
+          let i = 0;
+          const interval = setInterval(() => {
+            if (i < text.length) {
+              el.innerText += text.charAt(i);
+              i++;
+            } else {
+              clearInterval(interval);
+            }
+          }, 20);
+        });
+      } else {
+        document.querySelectorAll('.typing-text').forEach(el => {
+          const text = el.getAttribute('data-text');
+          el.innerText = text || '';
+        });
+      }
     };
 
     const refreshRightSidebar = (isEntrySwitch = true) => {
@@ -3137,19 +3536,26 @@
       updateAuditMarksUI();
 
       // Init Typing Effects
-      document.querySelectorAll('.typing-text').forEach(el => {
-        const text = el.getAttribute('data-text');
-        el.innerText = '';
-        let i = 0;
-        const interval = setInterval(() => {
-          if (i < text.length) {
-            el.innerText += text.charAt(i);
-            i++;
-          } else {
-            clearInterval(interval);
-          }
-        }, 20);
-      });
+      if (shouldAnimateTyping()) {
+        document.querySelectorAll('.typing-text').forEach(el => {
+          const text = el.getAttribute('data-text');
+          el.innerText = '';
+          let i = 0;
+          const interval = setInterval(() => {
+            if (i < text.length) {
+              el.innerText += text.charAt(i);
+              i++;
+            } else {
+              clearInterval(interval);
+            }
+          }, 20);
+        });
+      } else {
+        document.querySelectorAll('.typing-text').forEach(el => {
+          const text = el.getAttribute('data-text');
+          el.innerText = text || '';
+        });
+      }
 
       appState.lastAction = 'idle';
     };
@@ -3157,6 +3563,7 @@
     // Init
     document.addEventListener('DOMContentLoaded', async () => {
       outroOverlay = document.getElementById('outro-overlay');
+      appState.stepByStepEnabled = loadStepByStepPreference();
       loadCodeFontSize();
       loadAuditMarks();
       loadCollapsedNodes();
@@ -3167,6 +3574,7 @@
       callGraphs = hydrated.callGraphs;
       stateReadsByFunction = hydrated.stateReads;
       stateWritesByFunction = hydrated.stateWrites;
+      applyStepByStepDefaults(hydrated);
       functionBySignature = functionList.reduce((acc, fn) => {
         acc[fn.signature] = fn;
         return acc;
@@ -3278,6 +3686,9 @@
         } else if (matchesAction(event, 'toggleStorage')) {
           event.preventDefault();
           toggleStoragePanel();
+        } else if (matchesAction(event, 'toggleStepByStep')) {
+          event.preventDefault();
+          setStepByStepMode(!appState.stepByStepEnabled);
         } else if (matchesAction(event, 'toggleAuditMark')) {
           event.preventDefault();
           if (appState.activeFunctionId) {
