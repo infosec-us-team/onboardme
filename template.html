@@ -1054,7 +1054,7 @@
         'var', 'import', 'function', 'constant', 'view', 'pure', 'payable', 'storage', 'memory',
         'if', 'else', 'for', 'while', 'do', 'break', 'continue', 'return', 'returns',
         'private', 'public', 'internal', 'external', 'inherited', 'this', 'suicide', 'selfdestruct',
-        'emit', 'new', 'is', 'throw', 'revert', 'assert', 'require', 'contract', 'interface',
+        'emit', 'new', 'is', 'delete', 'throw', 'revert', 'assert', 'require', 'contract', 'interface',
         'library', 'using', 'struct', 'modifier',
         'address', 'string', 'bool', 'mapping',
         'onlyOwner', 'onlyRole', 'nonReentrant', 'override', 'virtual'
@@ -1446,7 +1446,7 @@
           {className: 'token-comment', regex: /\/\*[\s\S]*?\*\//g},
           {className: 'token-string', regex: /`(?:\\[\s\S]|[^\\`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g},
           {className: 'token-regex', regex: /\/(?:\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*(?:$|[,\r\n.;})\]]))/g},
-          {className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g},
+          {className: 'token-keyword', regex: /\b(?:var|import|function|constant|view|pure|payable|storage|memory|if|else|for|while|do|break|continue|returns?|private|public|internal|external|inherited|this|suicide|selfdestruct|emit|new|is|delete|throw|revert|assert|require|contract|interface|library|using|struct|modifier|return)\b/g},
           {className: 'token-function', regex: /[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/g},
           {className: 'token-type', regex: /\b(?:address|string|bytes\d*|int\d*|uint\d*|bool|u?fixed\d+x\d+|mapping)\b/g},
           {className: 'token-constant', regex: /\b[A-Z][A-Z\d_]*\b/g},
