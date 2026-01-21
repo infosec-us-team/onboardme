@@ -132,31 +132,94 @@ def _resolve_unimplemented_call(
     caller: Union[Function, Modifier],
     target: Union[Function, Modifier, None],
     root_contract: Contract | None,
+    all_contracts: Sequence[Contract] | None = None,
 ) -> Union[Function, Modifier, None]:
     """Resolve unimplemented interface/abstract calls to the first implemented override."""
-    if target is None or not isinstance(target, FunctionContract):
+    if target is None:
         return target
     if not hasattr(target, "is_implemented") or target.is_implemented:
         return target
 
-    signature = target.full_name
+    target_name = getattr(target, "name", None)
+    target_signature = getattr(target, "solidity_signature", None)
+    target_full_name = getattr(target, "full_name", None)
+    signature = target_signature or target_full_name or target_name
+    if not signature and not target_name:
+        return target
     caller_contract = getattr(caller, "contract_declarer", None) or getattr(caller, "contract", None)
+    target_contract = getattr(target, "contract_declarer", None) or getattr(target, "contract", None)
 
-    # First, resolve using the caller's inheritance (super linearization).
-    if caller_contract is not None:
-        for base in getattr(caller_contract, "inheritance", []):
-            for fn in getattr(base, "functions_declared", []):
-                if fn.full_name == signature and getattr(fn, "is_implemented", True):
-                    return fn
+    def _param_types(fn: Any) -> List[str]:
+        params = getattr(fn, "parameters", None) or []
+        return [str(getattr(p, "type", "")) for p in params]
 
-    # If still unresolved and the caller is not the entry contract, search the entry contract overrides.
-    if root_contract is not None and root_contract is not caller_contract:
+    target_param_types = _param_types(target)
+
+    def _matches_signature(fn: Function) -> bool:
+        fn_sig = getattr(fn, "solidity_signature", None)
+        if target_signature and fn_sig:
+            return fn_sig == target_signature
+        fn_full_name = getattr(fn, "full_name", None)
+        if target_full_name and fn_full_name:
+            return fn_full_name == target_full_name
+        fn_name = getattr(fn, "name", None)
+        if target_name and fn_name and fn_name != target_name:
+            return False
+        if target_param_types:
+            return _param_types(fn) == target_param_types
+        return True
+
+    def _find_implemented(contract: Contract | None) -> Function | None:
+        if contract is None:
+            return None
+        candidates = list(getattr(contract, "functions_declared", []) or [])
+        for fn in getattr(contract, "functions", []) or []:
+            if fn not in candidates:
+                candidates.append(fn)
+        for fn in candidates:
+            if not _matches_signature(fn):
+                continue
+            if getattr(fn, "is_implemented", True):
+                return fn
+        return None
+
+    def _find_descendant_override() -> Function | None:
+        if all_contracts is None or target_contract is None:
+            return None
+        for contract in all_contracts:
+            if contract is target_contract:
+                continue
+            inheritance = getattr(contract, "inheritance", []) or []
+            if target_contract not in inheritance:
+                continue
+            resolved = _find_implemented(contract)
+            if resolved is not None:
+                return resolved
+        return None
+
+    # First, resolve using the main (root) contract, then walk its parents.
+    if root_contract is not None:
         search_contracts: List[Contract] = [root_contract]
         search_contracts.extend(getattr(root_contract, "inheritance", []))
         for base in search_contracts:
-            for fn in getattr(base, "functions_declared", []):
-                if fn.full_name == signature and getattr(fn, "is_implemented", True):
-                    return fn
+            resolved = _find_implemented(base)
+            if resolved is not None:
+                return resolved
+
+    # If no root contract is provided, fall back to the caller's contract then parents.
+    if root_contract is None and caller_contract is not None:
+        resolved = _find_implemented(caller_contract)
+        if resolved is not None:
+            return resolved
+        for base in getattr(caller_contract, "inheritance", []):
+            resolved = _find_implemented(base)
+            if resolved is not None:
+                return resolved
+
+    # Finally, try any derived contracts in the compilation unit.
+    resolved = _find_descendant_override()
+    if resolved is not None:
+        return resolved
 
     return target
 
@@ -191,6 +254,7 @@ def _walk_callable(
     collected: List[Dict[str, Any]],
     callable_index: Dict[str, Union[Function, Modifier]],
     root_contract: Contract,
+    all_contracts: Sequence[Contract] | None = None,
 ) -> None:
     """
     Record this callable and recursively visit everything it can execute:
@@ -235,6 +299,7 @@ def _walk_callable(
                 collected,
                 callable_index,
                 root_contract,
+                all_contracts,
             )
 
     CALL_ATTRS = (
@@ -279,7 +344,7 @@ def _walk_callable(
 
     for call in sorted(all_calls, key=_call_sort_key):
         target = _call_target(call)
-        target = _resolve_unimplemented_call(item, target, root_contract)
+        target = _resolve_unimplemented_call(item, target, root_contract, all_contracts)
         if _is_interface_target(target):
             continue
         _walk_callable(
@@ -288,6 +353,7 @@ def _walk_callable(
             collected,
             callable_index,
             root_contract,
+            all_contracts,
         )
 
 
@@ -344,6 +410,7 @@ def build_entry_point_flows(
     """Assemble structured data for every entry point and its execution flow."""
     entries: List[Dict[str, Any]] = []
     reported_unimplemented: Set[str] = set()
+    all_contracts = list(getattr(slither, "contracts", []) or [])
 
     audited_contracts = list(_iter_audited_contracts(slither, root_contracts))
     _report_progress(
@@ -409,6 +476,7 @@ def build_entry_point_flows(
                 flow,
                 callable_index,
                 contract,
+                all_contracts,
             )
 
             for item in flow:
