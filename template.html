@@ -1430,6 +1430,16 @@
         return false;
       };
 
+      const resolveFunctionLinkKey = (name, arity, allowLink = true) => {
+        if (!allowLink || !functionInfo) return '';
+        const tokenKey = normalizeFunctionKey(name);
+        if (!tokenKey) return '';
+        const aritySet = functionNameArityMap.get(tokenKey);
+        const hasArityMatch = arity !== null && aritySet && aritySet.has(arity);
+        const isUniqueName = uniqueFunctionNames.has(tokenKey);
+        return hasArityMatch ? `${tokenKey}:${arity}` : (isUniqueName ? tokenKey : '');
+      };
+
       const isBuiltinMemberAccess = (text, matchIndex, name) => {
         let i = matchIndex - 1;
         while (i >= 0 && /\s/.test(text[i])) i -= 1;
@@ -1658,7 +1668,12 @@
           } else if (inParamList && !isParamName) {
             result += escapeHtml(name);
           } else if (inSignatureTail) {
-            result += escapeHtml(name);
+            const resolvedKey = resolveFunctionLinkKey(name, 0, true);
+            if (resolvedKey) {
+              result += `<button type="button" class="token-function function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+            } else {
+              result += escapeHtml(name);
+            }
           } else {
             const escapedName = escapeHtml(name);
             result += `<span class="variable-token${scopeClassForName(name)}" data-var="${escapedName}"${scopeAttrForName(name)}>${escapedName}</span>`;
@@ -1883,12 +1898,7 @@
               const isDeclaration = isFunctionDeclaration(fullLine, absoluteStart);
               const isEmit = isEmitCall(fullLine, absoluteStart);
               const arity = getCallArityFromLines(lines, lineIndex, absoluteStart + token.text.length);
-              const aritySet = functionNameArityMap.get(tokenKey);
-              const hasArityMatch = !isDeclaration && !isEmit && arity !== null && aritySet && aritySet.has(arity);
-              const isUniqueName = !isDeclaration && !isEmit && uniqueFunctionNames.has(tokenKey);
-              const resolvedKey = hasArityMatch
-                ? `${tokenKey}:${arity}`
-                : (isUniqueName ? tokenKey : '');
+              const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isEmit);
               if (resolvedKey) {
                 result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}">${escapeHtml(token.text)}</button>`;
               } else {
@@ -3129,7 +3139,7 @@
                 <div class="flex items-center gap-3">
                   <div class="min-w-0">
                     <div class="text-[9px] font-display uppercase tracking-[0.25em] text-cyan-200">Step-by-step mode</div>
-                    <div class="text-[8px] font-mono tracking-[0.2em] text-cyan-700/70">Starts with only the entry point expanded.</div>
+                    <div class="text-[8px] font-mono tracking-[0.2em] text-cyan-700/70">Starts with only the entry point visible, click on a function call to reveal it.</div>
                   </div>
                   <div class="flex-1 border-t border-dashed border-cyan-900/60"></div>
                   <button id="hotkey-toggle-step" type="button" class="w-10 h-4 rounded-full border border-cyan-900/70 bg-[#07101b] relative transition-colors">
