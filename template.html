@@ -2338,11 +2338,14 @@
       }
     };
 
-    const renderStorageReads = (reads = []) => renderStorageSection(
-      reads,
-      'hard-drive',
-      'No storage reads captured for this entry point.'
-    );
+    const renderStorageReads = (reads = []) => {
+      const filteredReads = (reads || []).filter((item) => !item?.is_constant && !item?.is_immutable);
+      return renderStorageSection(
+        filteredReads,
+        'hard-drive',
+        'No storage reads captured for this entry point.'
+      );
+    };
 
     const renderStorageWrites = (writes = []) => renderStorageSection(
       writes,
@@ -2954,7 +2957,8 @@
     const updateStorageSearchResults = () => {
       const resultsEl = document.getElementById('storage-search-results');
       if (!resultsEl) return;
-      const markup = STORAGE_VARIABLES.map((item) => {
+      const filteredVars = (STORAGE_VARIABLES || []).filter((item) => !item?.is_constant && !item?.is_immutable);
+      const markup = filteredVars.map((item) => {
         const label = storageVarLabel(item);
         const meta = [item?.type, item?.contract].filter(Boolean).join(' • ');
         const isActive = appState.storageSearch.selectedVar === label;
