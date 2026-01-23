@@ -82,6 +82,78 @@ def _local_var_record(
     return record
 
 
+def _type_alias_record(alias: Any) -> Dict[str, Any]:
+    """Return JSON-serializable info for a Solidity type alias."""
+    contract = getattr(alias, "contract", None)
+    contract_name = getattr(contract, "name", "") if contract else ""
+    name = getattr(alias, "name", "") or ""
+    qualified_name = f"{contract_name}.{name}" if contract_name and name else name
+    underlying = getattr(alias, "underlying_type", None) or getattr(alias, "type", None)
+    underlying_str = str(underlying) if underlying is not None else ""
+    source = _source_text(alias)
+    if not source and name and underlying_str:
+        source = f"type {name} is {underlying_str};"
+    return {
+        "name": name,
+        "contract": contract_name,
+        "qualified_name": qualified_name,
+        "type": underlying_str,
+        "source": source,
+        "kind": "type_alias",
+    }
+
+
+def _library_record(contract: Any) -> Dict[str, Any]:
+    """Return JSON-serializable info for a library declaration."""
+    name = getattr(contract, "name", "") or ""
+    source = _source_text(contract)
+    if not source and name:
+        source = f"library {name}"
+    return {
+        "name": name,
+        "contract": name,
+        "qualified_name": name,
+        "type": "library",
+        "source": source,
+        "kind": "library",
+    }
+
+
+def _event_record(event: Any) -> Dict[str, Any]:
+    """Return JSON-serializable info for an event declaration."""
+    contract = getattr(event, "contract", None)
+    contract_name = getattr(contract, "name", "") if contract else ""
+    name = getattr(event, "name", "") or ""
+    qualified_name = f"{contract_name}.{name}" if contract_name and name else name
+    source = _source_text(event)
+    if not source and name:
+        source = f"event {name}"
+    return {
+        "name": name,
+        "contract": contract_name,
+        "qualified_name": qualified_name,
+        "type": "event",
+        "source": source,
+        "kind": "event",
+    }
+
+
+def _interface_record(contract: Any) -> Dict[str, Any]:
+    """Return JSON-serializable info for an interface declaration."""
+    name = getattr(contract, "name", "") or ""
+    source = _source_text(contract)
+    if not source and name:
+        source = f"interface {name}"
+    return {
+        "name": name,
+        "contract": name,
+        "qualified_name": name,
+        "type": "interface",
+        "source": source,
+        "kind": "interface",
+    }
+
+
 def _collect_local_and_param_vars(item: Union[Function, Modifier]) -> List[Dict[str, Any]]:
     """Collect local and parameter variables with type/source info for tooltips."""
     if item is None:

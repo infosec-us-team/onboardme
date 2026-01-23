@@ -265,6 +265,18 @@
       width: 70%;
       margin-left: 15%;
     }
+    
+    @keyframes glitch-scan {
+      0% {
+        transform: translateX(-30%);
+        opacity: 0.4;
+      }
+
+      100% {
+        transform: translateX(30%);
+        opacity: 0.4;
+      }
+    }
 
     .variable-token.is-active[data-var-scope="storage"]::after,
     .variable-token.is-locked[data-var-scope="storage"]::after {
@@ -306,6 +318,66 @@
       transition:
         opacity 0.1s ease-out,
         transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .var-tooltip.is-truncated::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 55%;
+      background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
+      pointer-events: none;
+    }
+
+    .fn-tooltip {
+      position: fixed;
+      z-index: 9997;
+      max-width: calc(100vw - 20px);
+      padding: 8px 14px;
+      box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 1),
+        0 20px 50px -12px rgba(0, 0, 0, 0.9),
+        0 0 40px #040812;
+      background: #040812;
+      border-radius: 4px;
+      color: #cbd5e1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: calc(var(--code-font-size) - 5px);
+      line-height: 1.6;
+      pointer-events: none;
+      overflow-x: auto;
+      overflow-y: hidden;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(4px) scale(0.99);
+      transition:
+        opacity 0.1s ease-out,
+        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+        visibility 0s linear 0.1s;
+    }
+
+    .fn-tooltip.is-visible {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      transition:
+        opacity 0.1s ease-out,
+        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .fn-tooltip.is-truncated::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 55%;
+      background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
+      pointer-events: none;
+    }
+
+    .fn-tooltip-source {
+      position: relative;
     }
 
     /* Metadata Row REMOVED */
@@ -504,6 +576,18 @@
     ];
     const STORAGE_VARIABLES = [
       REPLACE_THIS_WITH_STORAGE_VARIABLES
+    ];
+    const TYPE_ALIASES = [
+      REPLACE_THIS_WITH_TYPE_ALIASES
+    ];
+    const LIBRARIES = [
+      REPLACE_THIS_WITH_LIBRARIES
+    ];
+    const EVENTS = [
+      REPLACE_THIS_WITH_EVENTS
+    ];
+    const INTERFACES = [
+      REPLACE_THIS_WITH_INTERFACES
     ];
     const STORAGE_WRITERS_INDEX = REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX;
     let functionList = [];
@@ -1853,7 +1937,7 @@
       const isEmitCall = (fullLine, absoluteStart) => {
         if (!fullLine || absoluteStart == null) return false;
         const prefix = fullLine.slice(0, absoluteStart);
-        return /(?:^|[^a-zA-Z0-9_])emit\s*$/.test(prefix);
+        return /(?:^|[^a-zA-Z0-9_])emit\s+(?:[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*\s*\.\s*)?$/.test(prefix);
       };
 
       const highlightLine = (line, lineIndex, baseOffset = 0, fullLine = line) => {
@@ -1910,20 +1994,29 @@
               const isDeclaration = isFunctionDeclaration(fullLine, absoluteStart);
               const isEmit = isEmitCall(fullLine, absoluteStart);
               const arity = getCallArityFromLines(lines, lineIndex, absoluteStart + token.text.length);
-              const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isEmit);
-              if (resolvedKey) {
-                const callPrefix = line.slice(0, token.start);
-                const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
-                const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
-                const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
-                  ? qualifiedMatch[1]
-                  : '';
-                const callMeta = isSuperCall
-                  ? ' data-fn-call="super"'
-                  : (callContract ? ` data-fn-call-contract="${escapeHtml(callContract)}"` : '');
-                result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}"${originAttr}${callMeta}>${escapeHtml(token.text)}</button>`;
+              const isInterfaceName = interfaceIndex.has(token.text);
+              if (isEmit) {
+                const escapedName = escapeHtml(token.text);
+                result += `<span class="${token.className} variable-token" data-var="${escapedName}" data-event="${escapedName}">${escapedName}</span>`;
+              } else if (isInterfaceName) {
+                const escapedName = escapeHtml(token.text);
+                result += `<span class="token-constant variable-token" data-var="${escapedName}">${escapedName}</span>`;
               } else {
-                result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+                const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration);
+                if (resolvedKey) {
+                  const callPrefix = line.slice(0, token.start);
+                  const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
+                  const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
+                  const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
+                    ? qualifiedMatch[1]
+                    : '';
+                  const callMeta = isSuperCall
+                    ? ' data-fn-call="super"'
+                    : (callContract ? ` data-fn-call-contract="${escapeHtml(callContract)}"` : '');
+                  result += `<button type="button" class="${token.className} function-link" data-fn-key="${resolvedKey}" data-fn-name="${escapeHtml(token.text)}"${originAttr}${callMeta}>${escapeHtml(token.text)}</button>`;
+                } else {
+                  result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
+                }
               }
             } else {
               result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
@@ -1942,6 +2035,12 @@
               result += `<span class="${token.className}">${escapeHtml(token.text)}</span>`;
             }
           } else if (token.className === 'token-constant') {
+            if (interfaceIndex.has(token.text)) {
+              const escapedName = escapeHtml(token.text);
+              result += `<span class="token-constant variable-token" data-var="${escapedName}">${escapedName}</span>`;
+              cursor = token.end;
+              return;
+            }
             const globalStart = lineOffsets[lineIndex] + baseOffset + token.start;
             const inParamList = signatureIndex && isInRanges(globalStart, signatureIndex.paramListRanges);
             const isParamName = signatureIndex && isInRanges(globalStart, signatureIndex.paramNameRanges);
@@ -2359,7 +2458,12 @@
       // State modifications widget removed per request
       const collapseKey = getNodeCollapseKey(node, { entryId: appState.activeFunctionId });
       const isEntryPointNode = node?.depth === 0;
-      const collapsed = isEntryPointNode ? false : isNodeCollapsed(collapseKey);
+      const shouldForceCollapse = appState.stepByStepEnabled && !isEntryPointNode;
+      if (shouldForceCollapse && collapseKey && !collapsedNodeIds.has(collapseKey)) {
+        collapsedNodeIds.add(collapseKey);
+        touchCollapsedKey(collapseKey);
+      }
+      const collapsed = isEntryPointNode ? false : (shouldForceCollapse || isNodeCollapsed(collapseKey));
       if (isEntryPointNode && isNodeCollapsed(collapseKey)) {
         collapsedNodeIds.delete(collapseKey);
         const idx = collapsedNodeOrder.indexOf(collapseKey);
@@ -2633,6 +2737,20 @@
       clearHoverHighlights(scope);
     });
 
+    document.addEventListener('mouseover', (event) => {
+      const linkEl = event.target.closest('.function-link');
+      if (!linkEl) return;
+      showFnTooltip(linkEl);
+    });
+
+    document.addEventListener('mouseout', (event) => {
+      const linkEl = event.target.closest('.function-link');
+      if (!linkEl) return;
+      const related = event.relatedTarget?.closest('.function-link');
+      if (related) return;
+      hideFnTooltip();
+    });
+
     document.addEventListener('click', (event) => {
       const tokenEl = event.target.closest('.variable-token');
       if (!tokenEl) return;
@@ -2829,7 +2947,57 @@
       return byName;
     })();
 
+    const typeAliasIndex = (() => {
+      const byName = new Map();
+      TYPE_ALIASES.forEach((item) => {
+        const name = (item?.name || '').trim();
+        if (!name) return;
+        const list = byName.get(name) || [];
+        list.push(item);
+        byName.set(name, list);
+      });
+      return byName;
+    })();
+
+    const libraryIndex = (() => {
+      const byName = new Map();
+      LIBRARIES.forEach((item) => {
+        const name = (item?.name || '').trim();
+        if (!name) return;
+        const list = byName.get(name) || [];
+        list.push(item);
+        byName.set(name, list);
+      });
+      return byName;
+    })();
+
+    const eventIndex = (() => {
+      const byName = new Map();
+      EVENTS.forEach((item) => {
+        const name = (item?.name || '').trim();
+        if (!name) return;
+        const list = byName.get(name) || [];
+        list.push(item);
+        byName.set(name, list);
+      });
+      return byName;
+    })();
+
+    const interfaceIndex = (() => {
+      const byName = new Map();
+      INTERFACES.forEach((item) => {
+        const name = (item?.name || '').trim();
+        if (!name) return;
+        const list = byName.get(name) || [];
+        list.push(item);
+        byName.set(name, list);
+      });
+      return byName;
+    })();
+
     let varTooltipEl = null;
+    let fnTooltipEl = null;
+    let functionSourceIndex = new Map();
 
     const getVarMetaMap = (tokenEl) => {
       const block = tokenEl?.closest?.('.code-block');
@@ -2890,6 +3058,64 @@
       return varTooltipEl;
     };
 
+    const ensureFnTooltip = () => {
+      if (fnTooltipEl) return fnTooltipEl;
+      fnTooltipEl = document.createElement('div');
+      fnTooltipEl.id = 'fn-tooltip';
+      fnTooltipEl.className = 'fn-tooltip';
+      fnTooltipEl.innerHTML = `
+        <div class="fn-tooltip-source" data-role="source"></div>
+      `;
+      document.body.appendChild(fnTooltipEl);
+      return fnTooltipEl;
+    };
+
+    const resolveTypeAliasRecord = (varName, tokenEl) => {
+      if (!varName) return null;
+      const candidates = typeAliasIndex.get(varName);
+      if (!candidates || !candidates.length) return null;
+      const node = tokenEl?.closest?.('.node-widget');
+      const contractName = node?.getAttribute('data-node-contract') || '';
+      if (contractName) {
+        const match = candidates.find((item) => item?.contract === contractName);
+        if (match) return match;
+      }
+      return candidates[0];
+    };
+
+    const resolveLibraryRecord = (varName, tokenEl) => {
+      if (!varName) return null;
+      const candidates = libraryIndex.get(varName);
+      if (!candidates || !candidates.length) return null;
+      return candidates[0];
+    };
+
+    const resolveInterfaceRecord = (varName, tokenEl) => {
+      if (!varName) return null;
+      const candidates = interfaceIndex.get(varName);
+      if (!candidates || !candidates.length) return null;
+      return candidates[0];
+    };
+
+    const resolveEventRecord = (eventName, tokenEl) => {
+      if (!eventName) return null;
+      const candidates = eventIndex.get(eventName);
+      if (!candidates || !candidates.length) return null;
+      const memberBase = getMemberAccessBase(tokenEl);
+      const baseName = memberBase?.getAttribute?.('data-var') || '';
+      if (baseName) {
+        const match = candidates.find((item) => item?.contract === baseName);
+        if (match) return match;
+      }
+      const node = tokenEl?.closest?.('.node-widget');
+      const contractName = node?.getAttribute('data-node-contract') || '';
+      if (contractName) {
+        const match = candidates.find((item) => item?.contract === contractName);
+        if (match) return match;
+      }
+      return candidates[0];
+    };
+
     const resolveVarRecordByName = (varName, tokenEl) => {
       if (!varName) return null;
       const localMap = getVarMetaMap(tokenEl);
@@ -2897,11 +3123,21 @@
       if (localRecord) return localRecord;
       const candidates = storageVarIndex.get(varName);
       if (candidates && candidates.length) return candidates[0];
-      return storageStructIndex.get(varName) || null;
+      const structRecord = storageStructIndex.get(varName) || null;
+      if (structRecord) return structRecord;
+      const typeAlias = resolveTypeAliasRecord(varName, tokenEl);
+      if (typeAlias) return typeAlias;
+      const interfaceRecord = resolveInterfaceRecord(varName, tokenEl);
+      if (interfaceRecord) return interfaceRecord;
+      return resolveLibraryRecord(varName, tokenEl);
     };
 
     const resolveVarRecord = (tokenEl) => {
       if (!tokenEl) return null;
+      const eventName = tokenEl.getAttribute('data-event');
+      if (eventName) {
+        return resolveEventRecord(eventName, tokenEl);
+      }
       const memberBase = getMemberAccessBase(tokenEl);
       if (memberBase) {
         const baseName = memberBase.getAttribute('data-var') || '';
@@ -2935,8 +3171,11 @@
       const tooltip = ensureVarTooltip();
 
       const sourceText = record?.source || record?.struct?.source || '';
-      // Increased max lines for better visibility
-      const sourceMarkup = renderTooltipSnippet(sourceText, 16, 800);
+      const maxLines = 16;
+      const maxChars = 800;
+      const sourceMarkup = renderTooltipSnippet(sourceText, maxLines, maxChars);
+      const lineCount = sourceText.split('\n').length;
+      const truncated = sourceText.length > maxChars || lineCount > maxLines;
 
       // Minimalist: Code ONLY. No headers.
       tooltip.innerHTML = `
@@ -2945,6 +3184,7 @@
         </div>
       `;
 
+      tooltip.classList.toggle('is-truncated', truncated);
       tooltip.classList.add('is-visible');
       positionVarTooltip(tokenEl, tooltip);
     };
@@ -2952,6 +3192,38 @@
     const hideVarTooltip = () => {
       if (!varTooltipEl) return;
       varTooltipEl.classList.remove('is-visible');
+    };
+
+    const showFnTooltip = (linkEl) => {
+      const key = linkEl?.getAttribute?.('data-fn-key') || '';
+      if (!key) {
+        hideFnTooltip();
+        return;
+      }
+      const source = functionSourceIndex.get(key);
+      if (!source) {
+        hideFnTooltip();
+        return;
+      }
+      const tooltip = ensureFnTooltip();
+      const maxLines = 16;
+      const maxChars = 800;
+      const sourceMarkup = renderTooltipSnippet(source, maxLines, maxChars);
+      const lineCount = source.split('\n').length;
+      const truncated = source.length > maxChars || lineCount > maxLines;
+      tooltip.innerHTML = `
+        <div class="fn-tooltip-source">
+           ${sourceMarkup || '<span class="text-slate-600 italic">// Source definition unavailable</span>'}
+        </div>
+      `;
+      tooltip.classList.toggle('is-truncated', truncated);
+      tooltip.classList.add('is-visible');
+      positionVarTooltip(linkEl, tooltip);
+    };
+
+    const hideFnTooltip = () => {
+      if (!fnTooltipEl) return;
+      fnTooltipEl.classList.remove('is-visible');
     };
 
     const updateStorageSearchResults = () => {
@@ -3465,6 +3737,20 @@
           .filter(([, count]) => count === 1)
           .map(([name]) => name)
       );
+      functionSourceIndex = new Map();
+      graph.forEach((node) => {
+        const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
+        if (!nameKey) return;
+        const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
+          ?? parseSignatureArity(node.signature || '');
+        if (arity !== null) {
+          const key = `${nameKey}:${arity}`;
+          if (!functionSourceIndex.has(key)) functionSourceIndex.set(key, node.code || '');
+        }
+        if (uniqueNames.has(nameKey) && !functionSourceIndex.has(nameKey)) {
+          functionSourceIndex.set(nameKey, node.code || '');
+        }
+      });
       const functionInfo = { nameArityMap, uniqueNames };
       const flowMarkup = graph
         .map((node, i) => renderNodeWidget(node, i, !isEntrySwitch && !appState.stepByStepEnabled, functionInfo))
@@ -3802,8 +4088,10 @@
       window.addEventListener('resize', () => {
         applyResponsiveGuard();
         hideVarTooltip();
+        hideFnTooltip();
       });
       window.addEventListener('scroll', hideVarTooltip, true);
+      window.addEventListener('scroll', hideFnTooltip, true);
 
     });
 

@@ -18,7 +18,13 @@ from analysis.slither_env import (
 )
 from analysis.flow_walk import _iter_audited_contracts, build_entry_point_flows
 from analysis.render import render_html
-from analysis.state_vars import _state_var_record
+from analysis.state_vars import (
+    _event_record,
+    _interface_record,
+    _library_record,
+    _state_var_record,
+    _type_alias_record,
+)
 
 # Silence Slither logging to keep console output clean.
 logging.disable(logging.CRITICAL)
@@ -154,12 +160,82 @@ def generate_html(
                 continue
             seen_vars.add(key)
             extra_storage_vars.append(record)
+    for compilation_unit in getattr(slither, "compilation_units", []) or []:
+        for var in getattr(compilation_unit, "variables_top_level", []) or []:
+            if not (getattr(var, "is_constant", False) or getattr(var, "is_immutable", False)):
+                continue
+            record = _state_var_record(var)
+            key = record.get("qualified_name") or record.get("name", "")
+            if not key or key in seen_vars:
+                continue
+            seen_vars.add(key)
+            extra_storage_vars.append(record)
+
+    type_aliases: List[Dict[str, Any]] = []
+    seen_aliases: set[str] = set()
+    for contract in getattr(slither, "contracts", []) or []:
+        for alias in getattr(contract, "type_aliases_declared", []) or []:
+            record = _type_alias_record(alias)
+            key = record.get("qualified_name") or record.get("name", "")
+            if not key or key in seen_aliases:
+                continue
+            seen_aliases.add(key)
+            type_aliases.append(record)
+    for compilation_unit in getattr(slither, "compilation_units", []) or []:
+        alias_map = getattr(compilation_unit, "type_aliases", {}) or {}
+        aliases = alias_map.values() if isinstance(alias_map, dict) else alias_map
+        for alias in aliases or []:
+            record = _type_alias_record(alias)
+            key = record.get("qualified_name") or record.get("name", "")
+            if not key or key in seen_aliases:
+                continue
+            seen_aliases.add(key)
+            type_aliases.append(record)
+
+    libraries: List[Dict[str, Any]] = []
+    seen_libraries: set[str] = set()
+    for contract in getattr(slither, "contracts", []) or []:
+        if not getattr(contract, "is_library", False):
+            continue
+        record = _library_record(contract)
+        key = record.get("qualified_name") or record.get("name", "")
+        if not key or key in seen_libraries:
+            continue
+        seen_libraries.add(key)
+        libraries.append(record)
+
+    events: List[Dict[str, Any]] = []
+    seen_events: set[str] = set()
+    for contract in getattr(slither, "contracts", []) or []:
+        for event in getattr(contract, "events_declared", []) or []:
+            record = _event_record(event)
+            key = record.get("qualified_name") or record.get("name", "")
+            if not key or key in seen_events:
+                continue
+            seen_events.add(key)
+            events.append(record)
+
+    interfaces: List[Dict[str, Any]] = []
+    seen_interfaces: set[str] = set()
+    for contract in getattr(slither, "contracts", []) or []:
+        if not getattr(contract, "is_interface", False):
+            continue
+        record = _interface_record(contract)
+        key = record.get("qualified_name") or record.get("name", "")
+        if not key or key in seen_interfaces:
+            continue
+        seen_interfaces.add(key)
+        interfaces.append(record)
     output_path = render_html(
         data,
         chain,
         address,
         title_contract,
         extra_storage_vars=extra_storage_vars,
+        type_aliases=type_aliases,
+        libraries=libraries,
+        events=events,
+        interfaces=interfaces,
         output_dir=output_dir,
         progress_cb=progress_cb,
     )
