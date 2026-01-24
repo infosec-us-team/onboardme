@@ -340,7 +340,6 @@
         0 20px 50px -12px rgba(0, 0, 0, 0.9),
         0 0 40px #040812;
       background: #040812;
-      border-radius: 4px;
       color: #cbd5e1;
       font-family: 'JetBrains Mono', monospace;
       font-size: calc(var(--code-font-size) - 5px);
@@ -441,6 +440,22 @@
 
     .node-header {
       cursor: pointer;
+    }
+
+    .node-header[data-clickable="false"] {
+      cursor: default;
+    }
+
+    #main-flow .node-widget {
+      transition: opacity 0.22s ease;
+    }
+
+    #main-flow.dim-functions .node-widget {
+      opacity: 0.3;
+    }
+
+    #main-flow.dim-functions .node-widget.is-focus {
+      opacity: 1;
     }
 
     .node-body {
@@ -1497,6 +1512,7 @@
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
       const functionNameArityMap = functionInfo?.nameArityMap || new Map();
       const uniqueFunctionNames = functionInfo?.uniqueNames || new Set();
+      const knownContractsLower = functionInfo?.knownContractsLower || new Set();
       const scopeLookup = variableScopeMap || {};
       const varInfoMap = buildVarInfoMap(variableRecords);
       const varInfoJson = escapeHtml(JSON.stringify(varInfoMap));
@@ -2002,14 +2018,19 @@
                 const escapedName = escapeHtml(token.text);
                 result += `<span class="token-constant variable-token" data-var="${escapedName}">${escapedName}</span>`;
               } else {
-                const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration);
+                const callPrefix = line.slice(0, token.start);
+                const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
+                const isThisCall = /(?:^|[^a-zA-Z0-9_])this\s*\.\s*$/.test(callPrefix);
+                const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
+                const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
+                  ? qualifiedMatch[1]
+                  : '';
+                const isExternalMember = callContract
+                  && !isSuperCall
+                  && !isThisCall
+                  && !knownContractsLower.has(callContract.toLowerCase());
+                const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isExternalMember);
                 if (resolvedKey) {
-                  const callPrefix = line.slice(0, token.start);
-                  const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
-                  const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
-                  const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
-                    ? qualifiedMatch[1]
-                    : '';
                   const callMeta = isSuperCall
                     ? ' data-fn-call="super"'
                     : (callContract ? ` data-fn-call-contract="${escapeHtml(callContract)}"` : '');
@@ -2475,8 +2496,11 @@
         ?? parseSignatureArity(node.signature || '');
       const functionKey = arity === null ? nameKey : `${nameKey}:${arity}`;
       const safeName = node.name || node.functionName || node.signature || 'Unknown';
+      const headerClickAttr = isEntryPointNode
+        ? 'data-clickable="false"'
+        : `data-clickable="true" onclick="toggleNodeCollapse('${collapseKey}', event)"`;
       const content = `
-                <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" onclick="toggleNodeCollapse('${collapseKey}', event)" aria-expanded="${collapsed ? 'false' : 'true'}">
+                <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" ${headerClickAttr} aria-expanded="${collapsed ? 'false' : 'true'}">
                     <div class="flex items-center gap-4">
                         <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
                             ${node.type === 'entry-point'
@@ -2515,6 +2539,22 @@
     };
 
     // --- GLOBAL ACTIONS ---
+    let functionFocusTimeout = null;
+    const focusScrolledFunction = (target) => {
+      const mainFlow = document.getElementById('main-flow');
+      if (!mainFlow || !target) return;
+      mainFlow.classList.add('dim-functions');
+      mainFlow.querySelectorAll('.node-widget.is-focus').forEach((el) => el.classList.remove('is-focus'));
+      target.classList.add('is-focus');
+      if (functionFocusTimeout) {
+        clearTimeout(functionFocusTimeout);
+      }
+      functionFocusTimeout = setTimeout(() => {
+        mainFlow.classList.remove('dim-functions');
+        mainFlow.querySelectorAll('.node-widget.is-focus').forEach((el) => el.classList.remove('is-focus'));
+      }, 1000);
+    };
+
     const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
       if (!key) return false;
       const mainFlow = document.getElementById('main-flow');
@@ -2562,6 +2602,7 @@
         toggleNodeCollapse(collapseKey);
       }
       target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      focusScrolledFunction(target);
       return true;
     };
 
@@ -3052,6 +3093,7 @@
       varTooltipEl.id = 'var-tooltip';
       varTooltipEl.className = 'var-tooltip';
       varTooltipEl.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
         <div class="var-tooltip-source" data-role="source"></div>
       `;
       document.body.appendChild(varTooltipEl);
@@ -3064,6 +3106,7 @@
       fnTooltipEl.id = 'fn-tooltip';
       fnTooltipEl.className = 'fn-tooltip';
       fnTooltipEl.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
         <div class="fn-tooltip-source" data-role="source"></div>
       `;
       document.body.appendChild(fnTooltipEl);
@@ -3179,7 +3222,8 @@
 
       // Minimalist: Code ONLY. No headers.
       tooltip.innerHTML = `
-        <div class="var-tooltip-source">
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="var-tooltip-source" data-role="source">
            ${sourceMarkup || '<span class="text-slate-600 italic">// Source definition unavailable</span>'}
         </div>
       `;
@@ -3212,7 +3256,8 @@
       const lineCount = source.split('\n').length;
       const truncated = source.length > maxChars || lineCount > maxLines;
       tooltip.innerHTML = `
-        <div class="fn-tooltip-source">
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="fn-tooltip-source" data-role="source">
            ${sourceMarkup || '<span class="text-slate-600 italic">// Source definition unavailable</span>'}
         </div>
       `;
@@ -3751,7 +3796,13 @@
           functionSourceIndex.set(nameKey, node.code || '');
         }
       });
-      const functionInfo = { nameArityMap, uniqueNames };
+      const knownContractsLower = new Set(
+        graph
+          .map((node) => (node.contractName || node.contract || '').trim())
+          .filter(Boolean)
+          .map((name) => name.toLowerCase())
+      );
+      const functionInfo = { nameArityMap, uniqueNames, knownContractsLower };
       const flowMarkup = graph
         .map((node, i) => renderNodeWidget(node, i, !isEntrySwitch && !appState.stepByStepEnabled, functionInfo))
         .join('');
