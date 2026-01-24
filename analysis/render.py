@@ -25,6 +25,10 @@ def render_html(
     address: str,
     title_contract: str,
     extra_storage_vars: List[Dict[str, Any]] | None = None,
+    type_aliases: List[Dict[str, Any]] | None = None,
+    libraries: List[Dict[str, Any]] | None = None,
+    events: List[Dict[str, Any]] | None = None,
+    interfaces: List[Dict[str, Any]] | None = None,
     output_dir: Path | None = None,
     progress_cb: ProgressCallback | None = None,
 ) -> Path:
@@ -66,6 +70,18 @@ def render_html(
     storage_vars_inner = (
         storage_vars_json[1:-1].strip() if len(storage_vars_json) > 2 else ""
     )
+    type_aliases_json = json.dumps(type_aliases or [], ensure_ascii=False, indent=2)
+    type_aliases_inner = (
+        type_aliases_json[1:-1].strip() if len(type_aliases_json) > 2 else ""
+    )
+    libraries_json = json.dumps(libraries or [], ensure_ascii=False, indent=2)
+    libraries_inner = (
+        libraries_json[1:-1].strip() if len(libraries_json) > 2 else ""
+    )
+    events_json = json.dumps(events or [], ensure_ascii=False, indent=2)
+    events_inner = events_json[1:-1].strip() if len(events_json) > 2 else ""
+    interfaces_json = json.dumps(interfaces or [], ensure_ascii=False, indent=2)
+    interfaces_inner = interfaces_json[1:-1].strip() if len(interfaces_json) > 2 else ""
     writers_index_json = json.dumps(writers_index, ensure_ascii=False, indent=2)
 
     filled_html = template_html.replace(
@@ -74,6 +90,14 @@ def render_html(
         "REPLACE_THIS_WITH_ENTRY_POINTS_DATA", inner_json
     ).replace(
         "REPLACE_THIS_WITH_STORAGE_VARIABLES", storage_vars_inner
+    ).replace(
+        "REPLACE_THIS_WITH_TYPE_ALIASES", type_aliases_inner
+    ).replace(
+        "REPLACE_THIS_WITH_LIBRARIES", libraries_inner
+    ).replace(
+        "REPLACE_THIS_WITH_EVENTS", events_inner
+    ).replace(
+        "REPLACE_THIS_WITH_INTERFACES", interfaces_inner
     ).replace(
         "REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX", writers_index_json
     ).replace(
