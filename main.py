@@ -217,6 +217,7 @@ def _select_local_root_contracts(slither: Slither) -> List[Contract]:
 def generate_html(
     address: str,
     chain: str | None = None,
+    output_dir: Path | None = None,
     progress_cb: ProgressCallback | None = None,
 ):
     """Generate the entry-point HTML for the given contract and return metadata."""
@@ -287,6 +288,7 @@ def generate_html(
         libraries=metadata["libraries"],
         events=metadata["events"],
         interfaces=metadata["interfaces"],
+        output_dir=output_dir,
         progress_cb=progress_cb,
     )
 

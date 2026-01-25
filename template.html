@@ -438,6 +438,35 @@
       opacity: 1;
     }
 
+    .review-toggle {
+      width: 18px;
+      height: 18px;
+      border: 1px solid rgba(251, 146, 60, 0.45);
+      background: rgba(20, 10, 4, 0.75);
+      color: #fb923c;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      transition: all 0.2s ease;
+      text-shadow: 0 0 6px rgba(251, 146, 60, 0.35);
+    }
+
+    .review-toggle:hover {
+      border-color: rgba(249, 115, 22, 0.7);
+      box-shadow: inset 0 0 8px rgba(249, 115, 22, 0.2), 0 0 6px rgba(249, 115, 22, 0.25);
+    }
+
+    .review-toggle.is-active {
+      display: inline-flex;
+      border-color: rgba(249, 115, 22, 0.6);
+      background: rgba(249, 115, 22, 0.12);
+      box-shadow: inset 0 0 1px rgba(251, 146, 60, 0.35), 0 0 30px rgba(249, 115, 22, 0.3);
+    }
+
     .node-header {
       cursor: pointer;
     }
@@ -993,9 +1022,14 @@
     const CODE_FONT_MIN = 8;
     const CODE_FONT_MAX = 24;
     const AUDIT_STORAGE_KEY = 'auditedEntryPoints';
+    const REVIEW_STORAGE_KEY = 'reviewFlaggedEntryPoints';
     const getAuditStorageKey = () => {
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${AUDIT_STORAGE_KEY}:${address}`;
+    };
+    const getReviewStorageKey = () => {
+      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
+      return `${REVIEW_STORAGE_KEY}:${address}`;
     };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
@@ -1027,6 +1061,7 @@
     };
 
     let auditedFunctionIds = new Set();
+    let reviewFlaggedFunctionIds = new Set();
     const loadStepByStepPreference = () => {
       try {
         const raw = localStorage.getItem(STEP_BY_STEP_STORAGE_KEY);
@@ -1258,6 +1293,55 @@
         event.stopPropagation();
       }
       toggleAudit(id);
+    };
+
+    const loadReviewMarks = () => {
+      try {
+        const raw = localStorage.getItem(getReviewStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          reviewFlaggedFunctionIds = new Set(parsed.filter(Boolean));
+        }
+      } catch (_) {
+        reviewFlaggedFunctionIds = new Set();
+      }
+    };
+
+    const persistReviewMarks = () => {
+      try {
+        localStorage.setItem(getReviewStorageKey(), JSON.stringify([...reviewFlaggedFunctionIds]));
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const updateReviewMarksUI = () => {
+      document.querySelectorAll('[data-review-id]').forEach((el) => {
+        const id = el.getAttribute('data-review-id');
+        const isFlagged = Boolean(id && reviewFlaggedFunctionIds.has(id));
+        el.classList.toggle('is-active', isFlagged);
+        el.setAttribute('aria-checked', isFlagged ? 'true' : 'false');
+        el.setAttribute('aria-hidden', isFlagged ? 'false' : 'true');
+      });
+    };
+
+    const toggleReview = (id, { persist = true } = {}) => {
+      if (!id) return;
+      if (reviewFlaggedFunctionIds.has(id)) {
+        reviewFlaggedFunctionIds.delete(id);
+      } else {
+        reviewFlaggedFunctionIds.add(id);
+      }
+      if (persist) persistReviewMarks();
+      updateReviewMarksUI();
+    };
+
+    const toggleReviewMark = (id, event) => {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      toggleReview(id);
     };
 
     const setCodeFontSize = (size, { persist = true } = {}) => {
@@ -3732,7 +3816,10 @@
                                                 <span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${fn.signature}</span>
                                             </div>
                                         </div>
-                                        <div class="relative z-10 flex items-center">
+                                        <div class="relative z-10 flex items-center gap-2">
+                                          <div data-review-id="${fn.id}" role="checkbox" aria-checked="${reviewFlaggedFunctionIds.has(fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlaggedFunctionIds.has(fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.id}', event)" class="review-toggle rounded-sm ${reviewFlaggedFunctionIds.has(fn.id) ? 'is-active' : ''}">
+                                            !
+                                          </div>
                                           <div data-audit-id="${fn.id}" role="checkbox" aria-checked="${auditedFunctionIds.has(fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFunctionIds.has(fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.id}', event)" class="audit-toggle rounded-sm ${auditedFunctionIds.has(fn.id) ? 'is-active' : ''}">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                               <path d="M20 6 9 17l-5-5"></path>
@@ -3923,6 +4010,7 @@
       if (leftEl) leftEl.outerHTML = renderLeftSidebar();
       applySidebarVisibility();
       updateAuditMarksUI();
+      updateReviewMarksUI();
     };
 
     // --- MAIN RENDER LOOP ---
@@ -3971,6 +4059,7 @@
       }
       applySidebarVisibility();
       updateAuditMarksUI();
+      updateReviewMarksUI();
 
       // Init Typing Effects
       if (shouldAnimateTyping()) {
@@ -4002,6 +4091,7 @@
       outroOverlay = document.getElementById('outro-overlay');
       appState.stepByStepEnabled = loadStepByStepPreference();
       loadCodeFontSize();
+      loadReviewMarks();
       loadAuditMarks();
       loadCollapsedNodes();
       loadHideCollapsed();
@@ -4126,6 +4216,11 @@
         } else if (matchesAction(event, 'toggleStepByStep')) {
           event.preventDefault();
           setStepByStepMode(!appState.stepByStepEnabled);
+        } else if (matchesAction(event, 'toggleReviewMark')) {
+          event.preventDefault();
+          if (appState.activeFunctionId) {
+            toggleReview(appState.activeFunctionId);
+          }
         } else if (matchesAction(event, 'toggleAuditMark')) {
           event.preventDefault();
           if (appState.activeFunctionId) {
