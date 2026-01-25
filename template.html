@@ -438,6 +438,39 @@
       opacity: 1;
     }
 
+    .node-audit-flag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(34, 211, 238, 0.35);
+      background: rgba(8, 22, 32, 0.6);
+      color: #7dd3fc;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-family: 'Orbitron', sans-serif;
+      text-shadow: 0 0 8px rgba(34, 211, 238, 0.25);
+      opacity: 0;
+      transform: translateY(-2px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .node-audit-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #22d3ee;
+      box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+    }
+
+    .node-audit-marked .node-audit-flag {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     .review-toggle {
       width: 18px;
       height: 18px;
@@ -473,6 +506,10 @@
 
     .node-header[data-clickable="false"] {
       cursor: default;
+    }
+
+    body.step-by-step-active .node-widget .node-header {
+      display: none;
     }
 
     #main-flow .node-widget {
@@ -854,12 +891,21 @@
     };
 
     const hashString = (value = '') => {
-      let hash = 0;
-      for (let i = 0; i < value.length; i += 1) {
-        hash = ((hash << 5) - hash) + value.charCodeAt(i);
-        hash |= 0;
+      const str = (value || '').toString();
+      let hash1 = 0xcbf29ce484222325n;
+      let hash2 = 0x84222325cbf29ce4n;
+      const prime1 = 0x100000001b3n;
+      const prime2 = 0x100000001b5n;
+      for (let i = 0; i < str.length; i += 1) {
+        const code = BigInt(str.charCodeAt(i));
+        hash1 ^= code;
+        hash1 = (hash1 * prime1) & 0xffffffffffffffffn;
+        hash2 ^= code;
+        hash2 = (hash2 * prime2) & 0xffffffffffffffffn;
       }
-      return `h${Math.abs(hash)}`;
+      const part1 = hash1.toString(16).padStart(16, '0');
+      const part2 = hash2.toString(16).padStart(16, '0');
+      return `h${part1}${part2}`;
     };
 
     const getNodeCollapseKey = (node, { entryId = null } = {}) => {
@@ -949,15 +995,28 @@
       return scopeMap;
     };
 
+    const buildFlowSignature = (entry) => {
+      const flow = Array.isArray(entry?.flow) ? entry.flow : [];
+      const compact = flow.map((step) => ({
+        name: step?.name || '',
+        selector: step?.selector || '',
+        contract: step?.contract || '',
+        kind: step?.kind || ''
+      }));
+      return JSON.stringify(compact);
+    };
+
     const buildDataFromJson = (entries = []) => {
       const functions = entries.map((entry, idx) => {
         const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
         const fullName = entry.entry_point || `entry_point_${idx}`;
         const display = fullName.split('(')[0];
+        const flowHash = hashString(buildFlowSignature(entry));
         return {
           id,
           name: display.split('.').pop() || display,
           signature: fullName,
+          flowHash,
           type: /view|pure/i.test(fullName) ? 'read' : 'write',
           contract: entry.contract || 'Unknown'
         };
@@ -1022,15 +1081,14 @@
     const CODE_FONT_MIN = 8;
     const CODE_FONT_MAX = 24;
     const AUDIT_STORAGE_KEY = 'auditedEntryPoints';
-    const REVIEW_STORAGE_KEY = 'reviewFlaggedEntryPoints';
+    const AUDIT_FLOW_STORAGE_KEY = 'auditedEntryPointFlows';
+    const REVIEW_FLOW_STORAGE_KEY = 'reviewFlaggedEntryPointFlows';
     const getAuditStorageKey = () => {
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${AUDIT_STORAGE_KEY}:${address}`;
     };
-    const getReviewStorageKey = () => {
-      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
-      return `${REVIEW_STORAGE_KEY}:${address}`;
-    };
+    const getAuditFlowStorageKey = () => AUDIT_FLOW_STORAGE_KEY;
+    const getReviewFlowStorageKey = () => REVIEW_FLOW_STORAGE_KEY;
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
     const STEP_BY_STEP_STORAGE_KEY = 'stepByStepMode';
@@ -1060,8 +1118,8 @@
       stepByStepEnabled: false
     };
 
-    let auditedFunctionIds = new Set();
-    let reviewFlaggedFunctionIds = new Set();
+    let auditedFlowHashes = new Set();
+    let reviewFlowHashes = new Set();
     const loadStepByStepPreference = () => {
       try {
         const raw = localStorage.getItem(STEP_BY_STEP_STORAGE_KEY);
@@ -1152,6 +1210,7 @@
       const next = Boolean(enabled);
       if (appState.stepByStepEnabled === next) return;
       appState.stepByStepEnabled = next;
+      document.body.classList.toggle('step-by-step-active', next);
       try {
         localStorage.setItem(STEP_BY_STEP_STORAGE_KEY, next ? 'true' : 'false');
       } catch (_) {
@@ -1216,6 +1275,8 @@
           widget.classList.add('node-collapsed');
           if (header) header.setAttribute('aria-expanded', 'false');
         }
+        const shouldMarkAudited = !appState.stepByStepEnabled && widget.classList.contains('node-collapsed');
+        widget.classList.toggle('node-audit-marked', shouldMarkAudited);
       });
       persistCollapsedNodes();
       if (appState.hideCollapsed) {
@@ -1242,19 +1303,19 @@
 
     const loadAuditMarks = () => {
       try {
-        const raw = localStorage.getItem(getAuditStorageKey());
+        const raw = localStorage.getItem(getAuditFlowStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
-          auditedFunctionIds = new Set(parsed.filter(Boolean));
+          auditedFlowHashes = new Set(parsed.filter(Boolean));
         }
       } catch (_) {
-        auditedFunctionIds = new Set();
+        auditedFlowHashes = new Set();
       }
     };
 
     const persistAuditMarks = () => {
       try {
-        localStorage.setItem(getAuditStorageKey(), JSON.stringify([...auditedFunctionIds]));
+        localStorage.setItem(getAuditFlowStorageKey(), JSON.stringify([...auditedFlowHashes]));
       } catch (_) {
         // Storage might be unavailable; ignore silently.
       }
@@ -1263,7 +1324,7 @@
     const updateAuditMarksUI = () => {
       document.querySelectorAll('[data-audit-id]').forEach((el) => {
         const id = el.getAttribute('data-audit-id');
-        const isAudited = Boolean(id && auditedFunctionIds.has(id));
+        const isAudited = Boolean(id && auditedFlowHashes.has(id));
         el.classList.toggle('is-active', isAudited);
         el.setAttribute('aria-checked', isAudited ? 'true' : 'false');
         el.setAttribute('aria-hidden', isAudited ? 'false' : 'true');
@@ -1272,10 +1333,10 @@
 
     const toggleAudit = (id, { persist = true } = {}) => {
       if (!id) return;
-      if (auditedFunctionIds.has(id)) {
-        auditedFunctionIds.delete(id);
+      if (auditedFlowHashes.has(id)) {
+        auditedFlowHashes.delete(id);
       } else {
-        auditedFunctionIds.add(id);
+        auditedFlowHashes.add(id);
       }
       if (persist) persistAuditMarks();
       if (!appState.showAudited) {
@@ -1295,21 +1356,28 @@
       toggleAudit(id);
     };
 
+    const getActiveAuditKey = () => {
+      if (!appState.activeFunctionId) return null;
+      const fn = functionList.find((entry) => entry.id === appState.activeFunctionId);
+      return fn?.flowHash || fn?.id || null;
+    };
+
+
     const loadReviewMarks = () => {
       try {
-        const raw = localStorage.getItem(getReviewStorageKey());
+        const raw = localStorage.getItem(getReviewFlowStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
-          reviewFlaggedFunctionIds = new Set(parsed.filter(Boolean));
+          reviewFlowHashes = new Set(parsed.filter(Boolean));
         }
       } catch (_) {
-        reviewFlaggedFunctionIds = new Set();
+        reviewFlowHashes = new Set();
       }
     };
 
     const persistReviewMarks = () => {
       try {
-        localStorage.setItem(getReviewStorageKey(), JSON.stringify([...reviewFlaggedFunctionIds]));
+        localStorage.setItem(getReviewFlowStorageKey(), JSON.stringify([...reviewFlowHashes]));
       } catch (_) {
         // Storage might be unavailable; ignore silently.
       }
@@ -1318,7 +1386,7 @@
     const updateReviewMarksUI = () => {
       document.querySelectorAll('[data-review-id]').forEach((el) => {
         const id = el.getAttribute('data-review-id');
-        const isFlagged = Boolean(id && reviewFlaggedFunctionIds.has(id));
+        const isFlagged = Boolean(id && reviewFlowHashes.has(id));
         el.classList.toggle('is-active', isFlagged);
         el.setAttribute('aria-checked', isFlagged ? 'true' : 'false');
         el.setAttribute('aria-hidden', isFlagged ? 'false' : 'true');
@@ -1327,10 +1395,10 @@
 
     const toggleReview = (id, { persist = true } = {}) => {
       if (!id) return;
-      if (reviewFlaggedFunctionIds.has(id)) {
-        reviewFlaggedFunctionIds.delete(id);
+      if (reviewFlowHashes.has(id)) {
+        reviewFlowHashes.delete(id);
       } else {
-        reviewFlaggedFunctionIds.add(id);
+        reviewFlowHashes.add(id);
       }
       if (persist) persistReviewMarks();
       updateReviewMarksUI();
@@ -1342,6 +1410,12 @@
         event.stopPropagation();
       }
       toggleReview(id);
+    };
+
+    const getActiveReviewKey = () => {
+      if (!appState.activeFunctionId) return null;
+      const fn = functionList.find((entry) => entry.id === appState.activeFunctionId);
+      return fn?.flowHash || fn?.id || null;
     };
 
     const setCodeFontSize = (size, { persist = true } = {}) => {
@@ -1538,8 +1612,6 @@
                     <div class="absolute inset-0 pointer-events-none z-20">
                         <div class="absolute top-0 left-0 w-px h-0 bg-cyan-500/60 transition-all duration-500 ease-out group-hover:h-20 group-hover:bg-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
                         <div class="absolute top-0 left-0 h-px w-0 bg-cyan-500/60 transition-all duration-500 ease-out group-hover:w-20 group-hover:bg-cyan-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
-                        <div class="absolute bottom-0 right-0 w-px h-10 bg-cyan-900 group-hover:bg-cyan-600 transition-colors"></div>
-                        <div class="absolute bottom-0 right-0 h-px w-10 bg-cyan-900 group-hover:bg-cyan-600 transition-colors"></div>
                         <div class="absolute top-0 right-0 flex gap-1">
                           <div class="rounded-tl-sm rounded-bl-md w-10 h-1 bg-cyan-500/80 animate-pulse"></div>
                           <div class="w-10 h-1 bg-cyan-500/50 "></div>
@@ -1547,7 +1619,6 @@
                         </div>
                         <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent -translate-x-full group-hover:animate-[scan-fast_2s_linear_infinite] opacity-0 group-hover:opacity-100"></div>
                     </div>
-                    <div class="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-cyan-600/50 rounded-bl-sm z-20 group-hover:border-cyan-400 transition-colors"></div>
                     <div class="absolute inset-0 bg-gradient-to-br from-cyan-500/8 via-transparent to-purple-500/8 pointer-events-none"></div>
 
                     ${(title || subtitle) ? `
@@ -2575,6 +2646,7 @@
         if (idx !== -1) collapsedNodeOrder.splice(idx, 1);
         persistCollapsedNodes();
       }
+      const auditedCollapsed = !isEntryPointNode && !appState.stepByStepEnabled && isNodeCollapsed(collapseKey);
       const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
       const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
         ?? parseSignatureArity(node.signature || '');
@@ -2583,6 +2655,9 @@
       const headerClickAttr = isEntryPointNode
         ? 'data-clickable="false"'
         : `data-clickable="true" onclick="toggleNodeCollapse('${collapseKey}', event)"`;
+      const auditFlagMarkup = !isEntryPointNode
+        ? `<div class="node-audit-flag"><span class="node-audit-dot"></span>Audited</div>`
+        : '';
       const content = `
                 <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" ${headerClickAttr} aria-expanded="${collapsed ? 'false' : 'true'}">
                     <div class="flex items-center gap-4">
@@ -2605,6 +2680,7 @@
                             </div>
                         </div>
                     </div>
+                    ${auditFlagMarkup}
                 </div>
                 <div class="node-body space-y-6">
                   <div class="node-body-inner space-y-6">
@@ -2616,7 +2692,7 @@
             `;
 
       return `
-                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-node-contract="${escapeHtmlGlobal(node.contractName || '')}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
+                <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${auditedCollapsed ? 'node-audit-marked' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-node-contract="${escapeHtmlGlobal(node.contractName || '')}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
                      ${neonCardMarkup('', '', content, 'w-full', true)}
                 </div>
             `;
@@ -2696,14 +2772,15 @@
       return true;
     };
 
-    const scrollActiveFunctionIntoView = () => {
+    const scrollActiveFunctionIntoView = (behavior = 'smooth') => {
       if (!appState.activeFunctionId) return;
       const activeBtn = document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`);
       if (activeBtn) {
-        activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior });
       }
     };
 
+    let selectionRefreshTimer = null;
     window.selectFunction = (id) => {
       const focused = document.activeElement;
       if (focused && focused.matches('[data-fn-id]')) {
@@ -2711,30 +2788,12 @@
       }
       appState.activeFunctionId = id;
       appState.lastAction = 'select-function';
-      refreshMainFlow();
-      if (!appState.storagePanelOpen && !appState.rightCollapsed) {
-        refreshRightSidebar();
-      }
-      if (appState.storagePanelOpen) {
-        updateStorageWriters();
-      }
       updateSidebarSelection();
       scrollActiveFunctionIntoView();
-    };
-
-    let appInitialized = false;
-
-    const stepFunctionSelection = (direction = 1) => {
-      if (!functionList.length) return;
-      const total = functionList.length;
-      const currentIndex = functionList.findIndex((fn) => fn.id === appState.activeFunctionId);
-      const nextIndex = currentIndex === -1
-        ? (direction > 0 ? 0 : total - 1)
-        : (currentIndex + direction + total) % total;
-      const target = functionList[nextIndex];
-      if (target) {
-        appState.activeFunctionId = target.id;
-        appState.lastAction = 'select-function';
+      if (selectionRefreshTimer) {
+        clearTimeout(selectionRefreshTimer);
+      }
+      selectionRefreshTimer = setTimeout(() => {
         refreshMainFlow();
         if (!appState.storagePanelOpen && !appState.rightCollapsed) {
           refreshRightSidebar();
@@ -2742,8 +2801,42 @@
         if (appState.storagePanelOpen) {
           updateStorageWriters();
         }
+        selectionRefreshTimer = null;
+      }, 0);
+    };
+
+    let appInitialized = false;
+
+    const stepFunctionSelection = (direction = 1) => {
+      if (!functionList.length) return;
+      const visibleList = appState.showAudited
+        ? functionList
+        : functionList.filter((fn) => !auditedFlowHashes.has(fn.flowHash || fn.id));
+      if (!visibleList.length) return;
+      const total = visibleList.length;
+      const currentIndex = visibleList.findIndex((fn) => fn.id === appState.activeFunctionId);
+      const nextIndex = currentIndex === -1
+        ? (direction > 0 ? 0 : total - 1)
+        : (currentIndex + direction + total) % total;
+      const target = visibleList[nextIndex];
+      if (target) {
+        appState.activeFunctionId = target.id;
+        appState.lastAction = 'select-function';
         updateSidebarSelection();
-        scrollActiveFunctionIntoView();
+        scrollActiveFunctionIntoView('auto');
+        if (selectionRefreshTimer) {
+          clearTimeout(selectionRefreshTimer);
+        }
+        selectionRefreshTimer = setTimeout(() => {
+          refreshMainFlow();
+          if (!appState.storagePanelOpen && !appState.rightCollapsed) {
+            refreshRightSidebar();
+          }
+          if (appState.storagePanelOpen) {
+            updateStorageWriters();
+          }
+          selectionRefreshTimer = null;
+        }, 0);
       }
     };
 
@@ -3379,7 +3472,7 @@
         const meta = [item?.type, item?.contract].filter(Boolean).join(' • ');
         const isActive = appState.storageSearch.selectedVar === label;
         return `
-          <button data-var-key="${label}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${isActive ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+          <button data-var-key="${label}" class="w-full text-left group relative p-3 overflow-hidden border-l-2 ${isActive ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
             <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
             <div class="relative z-10 flex items-center gap-3">
               <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${isActive ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
@@ -3421,7 +3514,7 @@
         const label = fn?.signature || entryName;
         const shortLabel = fn?.name || entryName.split('(')[0] || entryName;
         return `
-          <button data-fn-id="${fnId}" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 ${fnId && appState.activeFunctionId === fnId ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+          <button data-fn-id="${fnId}" class="w-full text-left group relative p-3 overflow-hidden border-l-2 ${fnId && appState.activeFunctionId === fnId ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
             <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
             <div class="relative z-10 flex items-center gap-3">
               <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${fnId && appState.activeFunctionId === fnId ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
@@ -3792,7 +3885,7 @@
       const addressLabel = CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
       const filteredFunctions = appState.showAudited
         ? functionList
-        : functionList.filter((fn) => !auditedFunctionIds.has(fn.id));
+        : functionList.filter((fn) => !auditedFlowHashes.has(fn.flowHash || fn.id));
       return `
                 <aside id="sidebar-left" class="${appState.leftCollapsed ? 'hidden' : 'w-80 shrink-0'} h-full flex flex-col ${leftAnimationClass}">
                     ${neonCardMarkup(chainLabel, addressLabel, `
@@ -3803,7 +3896,7 @@
                             </div>
                             <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                                 ${filteredFunctions.map((fn) => `
-                                    <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 transition-all duration-300 overflow-hidden border-l-2 flex items-center justify-between gap-3 ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
+                                    <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 overflow-hidden border-l-2 flex items-center justify-between gap-3 ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
                                         <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
                                         <div class="relative z-10 flex items-center gap-3 min-w-0">
                                             <div data-role="fn-icon-wrap" class="w-6 h-6 flex items-center justify-center rounded-sm border ${appState.activeFunctionId === fn.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}">
@@ -3817,10 +3910,10 @@
                                             </div>
                                         </div>
                                         <div class="relative z-10 flex items-center gap-2">
-                                          <div data-review-id="${fn.id}" role="checkbox" aria-checked="${reviewFlaggedFunctionIds.has(fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlaggedFunctionIds.has(fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.id}', event)" class="review-toggle rounded-sm ${reviewFlaggedFunctionIds.has(fn.id) ? 'is-active' : ''}">
+                                          <div data-review-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.flowHash || fn.id}', event)" class="review-toggle rounded-sm ${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
                                             !
                                           </div>
-                                          <div data-audit-id="${fn.id}" role="checkbox" aria-checked="${auditedFunctionIds.has(fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFunctionIds.has(fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.id}', event)" class="audit-toggle rounded-sm ${auditedFunctionIds.has(fn.id) ? 'is-active' : ''}">
+                                          <div data-audit-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.flowHash || fn.id}', event)" class="audit-toggle rounded-sm ${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
                                             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                               <path d="M20 6 9 17l-5-5"></path>
                                             </svg>
@@ -4090,6 +4183,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
       outroOverlay = document.getElementById('outro-overlay');
       appState.stepByStepEnabled = loadStepByStepPreference();
+      document.body.classList.toggle('step-by-step-active', appState.stepByStepEnabled);
       loadCodeFontSize();
       loadReviewMarks();
       loadAuditMarks();
@@ -4218,14 +4312,12 @@
           setStepByStepMode(!appState.stepByStepEnabled);
         } else if (matchesAction(event, 'toggleReviewMark')) {
           event.preventDefault();
-          if (appState.activeFunctionId) {
-            toggleReview(appState.activeFunctionId);
-          }
+          const reviewKey = getActiveReviewKey();
+          if (reviewKey) toggleReview(reviewKey);
         } else if (matchesAction(event, 'toggleAuditMark')) {
           event.preventDefault();
-          if (appState.activeFunctionId) {
-            toggleAudit(appState.activeFunctionId);
-          }
+          const auditKey = getActiveAuditKey();
+          if (auditKey) toggleAudit(auditKey);
         } else if (matchesAction(event, 'openHotkeys')) {
           event.preventDefault();
           openHotkeyHelp();
