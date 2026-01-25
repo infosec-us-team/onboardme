@@ -20,20 +20,21 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 
 ## ✨ Features
 
+- 🧱 Supports local Solidity projects and deployed smart contracts
 - 🧵 Single scrollable execution flow per entry point, including internal calls
-- ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
-- 🧭 Left entry-point list, center execution flow, right storage read/write panel
 - 🔎 Storage dependency panel to trace writers for a selected storage variable
+- 🧭 Left entry-point list, center execution flow, right storage read/write panel
+- 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
+- 🪜 Step-by-step mode to reveal internal calls as needed (Shift+T or `?` menu)
+- 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
+- ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
 - ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
 - ✅ Audit marks with a filter to focus on audited entry points
 - 📦 Collapsible function blocks with persisted state and synced collapse across identical code
 - 📋 Chain- and address-aware header with copy-to-clipboard hotkey
 - 🧭 Open contract in a block explorer via hotkey
 - 🔗 Chain name or chain ID input support (`chain:0x...`) with validation
-- 🛠️ Local UI + API (`/generate`) and CLI generation (`python main.py`)
-- 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
-- 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
-- 🪜 Step-by-step mode to reveal internal calls as needed (Shift+T or `?` menu)
+- 🛠️ Local UI + API (`/generate`) and CLI (`python main.py`)
 
 ## 🧩 Understand the UI layout
 
@@ -135,6 +136,8 @@ pip install slither-analyzer
 python serve.py --host 127.0.0.1 --port 8000
 ```
 
+## 🌐 Deployed smart contracts
+
 Open `http://127.0.0.1:8000/` and **type a contract address** to generate and view the dashboard.
 
 > You won't find a large text input box in the center of the screen to click; that's a design choice. Just type the chain id or name using your keyboard, then press the Paste hotkey if you have the smart contract address already copied to your clipboard. The text will be displayed on the page as you type.
@@ -143,8 +146,6 @@ Input formats supported by the UI:
 
 - `0x...` (defaults to `mainnet`)
 - `chain:0x...` (example: `mainnet:0x...` or `1:0x...`)
-
-## 🌐 Supported chains
 
 You can use either the chain name or the chain id anywhere a chain is accepted
 (CLI, API, or `chain:0xaddress` input).
@@ -218,17 +219,60 @@ You can use either the chain name or the chain id anywhere a chain is accepted
 | sei | 1329 |
 | testnet.sei | 1328 |
 
-## 🧰 Generate via CLI (optional)
+You can also generate a dashboard for a deployed smart contract using the CLI:
 
 ```bash
-# Generate a dashboard for a contract
+# Generate a dashboard for a contract (on-chain)
 python main.py <ADDRESS> <CHAIN>
 
-# Example (defaults are baked in if you omit args)
-python main.py
 ```
 
-The output HTML is written to `src/<chain>_<address>.html`.
+## 🧰 Local smart contracts
+
+The first step is to ensure your Solidity project has no errors. Run `forge build`, check for errors, and fix them if any.
+
+```bash
+# In the folder of your Solidity project run:
+forge build
+```
+
+Point OnboardMe to a folder, and it will detect all deployable "root" contracts (the ones intended to be deployed individually) and generate one HTML per root contract.
+
+```bash
+# Generate dashboards for a local Solidity project
+python main.py --local "/path/to/project"
+```
+
+For example:
+
+```bash
+(venv) ~/infosec_us_team_repos/onboardme$ python main.py --local "/home/c/protocols/notional-exponent/"
+| Contract                             | URL                                                                                |
+|--------------------------------------|------------------------------------------------------------------------------------|
+| AddressRegistry                      | http://localhost:8000/local_497e92cff8e0_AddressRegistry.html                      |
+| ChainlinkUSDOracle                   | http://localhost:8000/local_497e92cff8e0_ChainlinkUSDOracle.html                   |
+| ConvexRewardManager                  | http://localhost:8000/local_497e92cff8e0_ConvexRewardManager.html                  |
+| Curve2TokenOracle                    | http://localhost:8000/local_497e92cff8e0_Curve2TokenOracle.html                    |
+| CurveConvex2Token                    | http://localhost:8000/local_497e92cff8e0_CurveConvex2Token.html                    |
+| CurveConvexLib                       | http://localhost:8000/local_497e92cff8e0_CurveConvexLib.html                       |
+| CurveRewardManager                   | http://localhost:8000/local_497e92cff8e0_CurveRewardManager.html                   |
+| DineroCooldownHolder                 | http://localhost:8000/local_497e92cff8e0_DineroCooldownHolder.html                 |
+| DineroWithdrawRequestManager         | http://localhost:8000/local_497e92cff8e0_DineroWithdrawRequestManager.html         |
+| EthenaCooldownHolder                 | http://localhost:8000/local_497e92cff8e0_EthenaCooldownHolder.html                 |
+| EthenaWithdrawRequestManager         | http://localhost:8000/local_497e92cff8e0_EthenaWithdrawRequestManager.html         |
+| EtherFiWithdrawRequestManager        | http://localhost:8000/local_497e92cff8e0_EtherFiWithdrawRequestManager.html        |
+| GenericERC20WithdrawRequestManager   | http://localhost:8000/local_497e92cff8e0_GenericERC20WithdrawRequestManager.html   |
+| GenericERC4626WithdrawRequestManager | http://localhost:8000/local_497e92cff8e0_GenericERC4626WithdrawRequestManager.html |
+| MidasOracle                          | http://localhost:8000/local_497e92cff8e0_MidasOracle.html                          |
+| MidasStakingStrategy                 | http://localhost:8000/local_497e92cff8e0_MidasStakingStrategy.html                 |
+| MidasWithdrawRequestManager          | http://localhost:8000/local_497e92cff8e0_MidasWithdrawRequestManager.html          |
+| MorphoLendingRouter                  | http://localhost:8000/local_497e92cff8e0_MorphoLendingRouter.html                  |
+| OriginWithdrawRequestManager         | http://localhost:8000/local_497e92cff8e0_OriginWithdrawRequestManager.html         |
+| PauseAdmin                           | http://localhost:8000/local_497e92cff8e0_PauseAdmin.html                           |
+| PendlePTOracle                       | http://localhost:8000/local_497e92cff8e0_PendlePTOracle.html                       |
+| PendlePT_sUSDe                       | http://localhost:8000/local_497e92cff8e0_PendlePT_sUSDe.html                       |
+| TimelockUpgradeableProxy             | http://localhost:8000/local_497e92cff8e0_TimelockUpgradeableProxy.html             |
+```
 
 ## 🔌 API (used by the UI)
 

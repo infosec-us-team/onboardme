@@ -1,6 +1,7 @@
 """Generate a JSON file describing entry-point execution flows with state variable info."""
 
 import argparse
+import hashlib
 import logging
 import threading
 import time
@@ -84,71 +85,31 @@ def _resolve_root_contracts(slither: Slither, address: str, chain: str) -> List[
     return [c for c in slither.contracts if c.name == name_hint]
 
 
-# ----------- Main ------------------------------------------------------------
-
-def generate_html(
-    address: str,
-    chain: str | None = None,
-    output_dir: Path | None = None,
-    progress_cb: ProgressCallback | None = None,
-):
-    """Generate the entry-point HTML for the given contract and return metadata."""
-
-    _report_progress(progress_cb, "Loading environment")
-    _load_dotenv()
-    _report_progress(progress_cb, "Normalizing target")
-    address, chain = _resolve_chain_and_address(address, chain)
-    target = f"{chain}:{address}"
-    _report_progress(progress_cb, "Fetching verified source", target=target)
-    export_root = Path("crytic-export") / "etherscan-contracts"
-    if export_root.exists():
-        prefix = f"{_normalize_address(address)}{chain.lower()}-"
-        has_cache = any(
-            entry.is_dir() and entry.name.lower().startswith(prefix)
-            for entry in export_root.iterdir()
-        )
-        _report_progress(
-            progress_cb,
-            "Source cache check",
-            cached=bool(has_cache),
-        )
-
-    stop_fetch = threading.Event()
-
-    def _fetch_heartbeat() -> None:
-        start = time.time()
-        while not stop_fetch.wait(2.0):
-            elapsed = int(time.time() - start)
-            _report_progress(
-                progress_cb,
-                "Fetching verified source",
-                target=target,
-                elapsed_seconds=elapsed,
-            )
-
-    heartbeat_thread = None
-    if progress_cb:
-        heartbeat_thread = threading.Thread(
-            target=_fetch_heartbeat, name="fetch-heartbeat", daemon=True
-        )
-        heartbeat_thread.start()
-
-    slither = Slither(target, skip_analyze=False)
-    if heartbeat_thread:
-        stop_fetch.set()
-        heartbeat_thread.join(timeout=1.0)
-    _report_progress(progress_cb, "Compiler analysis completed")
-
-    _report_progress(progress_cb, "Resolving deployed contract")
-    root_contracts = _resolve_root_contracts(slither, address, chain)
-    _report_progress(progress_cb, "Building entry point flows")
-    data = build_entry_point_flows(slither, root_contracts, progress_cb=progress_cb)
-
-    audited_contracts = list(_iter_audited_contracts(slither, root_contracts))
-    if audited_contracts:
-        title_contract = audited_contracts[0].name
+def _local_project_hash(path: Path) -> str:
+    """Stable hash for a local Solidity project or file."""
+    sol_files: List[Path]
+    if path.is_dir():
+        sol_files = [p for p in path.rglob("*.sol") if p.is_file()]
     else:
-        title_contract = f"{chain}:{address}"
+        sol_files = [path] if path.suffix.lower() == ".sol" and path.is_file() else []
+    if not sol_files:
+        raise ValueError("No Solidity files found in project")
+
+    pieces: List[str] = []
+    for sol_file in sol_files:
+        rel_path = str(sol_file.relative_to(path)) if path.is_dir() else sol_file.name
+        digest = hashlib.sha256(sol_file.read_bytes()).hexdigest()
+        pieces.append(f"{rel_path}:{digest}")
+    joined = "|".join(sorted(pieces))
+    return hashlib.md5(joined.encode("utf-8")).hexdigest()[:12]
+
+
+def _collect_render_metadata(
+    slither: Slither,
+    root_contracts: Sequence[Contract] | None = None,
+) -> Dict[str, Any]:
+    """Collect metadata lists used by render_html."""
+    audited_contracts = list(_iter_audited_contracts(slither, root_contracts))
 
     extra_storage_vars: List[Dict[str, Any]] = []
     seen_vars: set[str] = set()
@@ -226,17 +187,106 @@ def generate_html(
             continue
         seen_interfaces.add(key)
         interfaces.append(record)
+
+    return {
+        "extra_storage_vars": extra_storage_vars,
+        "type_aliases": type_aliases,
+        "libraries": libraries,
+        "events": events,
+        "interfaces": interfaces,
+        "audited_contracts": audited_contracts,
+    }
+
+
+def _select_local_root_contracts(slither: Slither) -> List[Contract]:
+    """Return deployable root contracts in a local project."""
+    audited_contracts = list(_iter_audited_contracts(slither, None))
+    if not audited_contracts:
+        return []
+    audited_set = set(audited_contracts)
+    inherited: set[Contract] = set()
+    for contract in audited_contracts:
+        for base in getattr(contract, "inheritance", []) or []:
+            if base in audited_set:
+                inherited.add(base)
+    roots = [contract for contract in audited_contracts if contract not in inherited]
+    return roots or audited_contracts
+
+# ----------- Main ------------------------------------------------------------
+
+def generate_html(
+    address: str,
+    chain: str | None = None,
+    progress_cb: ProgressCallback | None = None,
+):
+    """Generate the entry-point HTML for the given contract and return metadata."""
+
+    _report_progress(progress_cb, "Loading environment")
+    _load_dotenv()
+    _report_progress(progress_cb, "Normalizing target")
+    address, chain = _resolve_chain_and_address(address, chain)
+    target = f"{chain}:{address}"
+    _report_progress(progress_cb, "Fetching verified source", target=target)
+    export_root = Path("crytic-export") / "etherscan-contracts"
+    if export_root.exists():
+        prefix = f"{_normalize_address(address)}{chain.lower()}-"
+        has_cache = any(
+            entry.is_dir() and entry.name.lower().startswith(prefix)
+            for entry in export_root.iterdir()
+        )
+        _report_progress(
+            progress_cb,
+            "Source cache check",
+            cached=bool(has_cache),
+        )
+
+    stop_fetch = threading.Event()
+
+    def _fetch_heartbeat() -> None:
+        start = time.time()
+        while not stop_fetch.wait(2.0):
+            elapsed = int(time.time() - start)
+            _report_progress(
+                progress_cb,
+                "Fetching verified source",
+                target=target,
+                elapsed_seconds=elapsed,
+            )
+
+    heartbeat_thread = None
+    if progress_cb:
+        heartbeat_thread = threading.Thread(
+            target=_fetch_heartbeat, name="fetch-heartbeat", daemon=True
+        )
+        heartbeat_thread.start()
+
+    slither = Slither(target, skip_analyze=False)
+    if heartbeat_thread:
+        stop_fetch.set()
+        heartbeat_thread.join(timeout=1.0)
+    _report_progress(progress_cb, "Compiler analysis completed")
+
+    _report_progress(progress_cb, "Resolving deployed contract")
+    root_contracts = _resolve_root_contracts(slither, address, chain)
+    _report_progress(progress_cb, "Building entry point flows")
+    data = build_entry_point_flows(slither, root_contracts, progress_cb=progress_cb)
+
+    metadata = _collect_render_metadata(slither, root_contracts)
+    audited_contracts = metadata["audited_contracts"]
+    if audited_contracts:
+        title_contract = audited_contracts[0].name
+    else:
+        title_contract = f"{chain}:{address}"
     output_path = render_html(
         data,
         chain,
         address,
         title_contract,
-        extra_storage_vars=extra_storage_vars,
-        type_aliases=type_aliases,
-        libraries=libraries,
-        events=events,
-        interfaces=interfaces,
-        output_dir=output_dir,
+        extra_storage_vars=metadata["extra_storage_vars"],
+        type_aliases=metadata["type_aliases"],
+        libraries=metadata["libraries"],
+        events=metadata["events"],
+        interfaces=metadata["interfaces"],
         progress_cb=progress_cb,
     )
 
@@ -251,15 +301,74 @@ def generate_html(
     }
 
 
+def generate_from_local(
+    source_path: str | Path,
+    progress_cb: ProgressCallback | None = None,
+) -> List[Dict[str, Any]]:
+    """Generate entry-point HTML for each deployable contract in a local project."""
+    path = Path(source_path).resolve()
+    if not path.exists():
+        raise ValueError(f"Path does not exist: {path}")
+    if path.is_dir():
+        target_label = str(path)
+    else:
+        target_label = path.name
+
+    _report_progress(progress_cb, "Compiling local project", path=target_label)
+    try:
+        slither = Slither(str(path), skip_analyze=False)
+    except Exception as exc:
+        raise ValueError(f"Compilation failed for {path}: {exc}") from exc
+    _report_progress(progress_cb, "Compiler analysis completed")
+
+    root_contracts = _select_local_root_contracts(slither)
+    if not root_contracts:
+        raise ValueError("No deployable contracts found in project")
+
+    project_hash = _local_project_hash(path)
+    results: List[Dict[str, Any]] = []
+    for contract in root_contracts:
+        _report_progress(progress_cb, "Building entry point flows", contract=contract.name)
+        data = build_entry_point_flows(slither, [contract], progress_cb=progress_cb)
+        metadata = _collect_render_metadata(slither, [contract])
+
+        output_address = f"{project_hash}_{contract.name}"
+        output_path = render_html(
+            data,
+            "local",
+            output_address,
+            contract.name,
+            extra_storage_vars=metadata["extra_storage_vars"],
+            type_aliases=metadata["type_aliases"],
+            libraries=metadata["libraries"],
+            events=metadata["events"],
+            interfaces=metadata["interfaces"],
+            progress_cb=progress_cb,
+        )
+
+        contract_names = sorted({entry.get("contract", "") for entry in data if entry.get("contract")})
+        results.append(
+            {
+                "output_path": output_path,
+                "contract": contract.name,
+                "contracts": contract_names,
+                "entry_count": len(data),
+                "target": str(path),
+            }
+        )
+
+    return results
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entry point for generating a single contract HTML file."""
     parser = argparse.ArgumentParser(
         description="Analyze a contract's entry-point execution flows.")
     parser.add_argument(
-        "address",
+        "address_or_path",
         nargs="?",
         default=DEFAULT_ADDRESS,
-        help="Contract address (default: built-in sample).",
+        help="Contract address or local project path (default: built-in sample).",
     )
     parser.add_argument(
         "chain",
@@ -267,15 +376,39 @@ def main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Chain name or chain id (default: mainnet).",
     )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Analyze a local Solidity project instead of an on-chain contract.",
+    )
     args = parser.parse_args(argv)
 
-    result = generate_html(args.address, args.chain)
-    output_path = result["output_path"]
-    file_url = output_path.resolve().as_uri()
-    print(
-        f"Wrote {result['entry_count']} entry point flows to {output_path} using target {result['target']}"
-    )
-    print(f"Open in browser: {file_url}")
+    if args.local:
+        results = generate_from_local(args.address_or_path)
+        rows = []
+        for result in results:
+            output_path = result["output_path"]
+            http_url = f"http://localhost:8000/{output_path.name}"
+            rows.append((result["contract"], http_url))
+
+        name_width = max(len("Contract"), *(len(name) for name, _ in rows))
+        url_width = max(len("URL"), *(len(url) for _, url in rows))
+
+        header = f"| {'Contract'.ljust(name_width)} | {'URL'.ljust(url_width)} |"
+        divider = f"|{'-' * (name_width + 2)}|{'-' * (url_width + 2)}|"
+
+        print(header)
+        print(divider)
+        for name, url in rows:
+            print(f"| {name.ljust(name_width)} | {url.ljust(url_width)} |")
+    else:
+        result = generate_html(args.address_or_path, args.chain)
+        output_path = result["output_path"]
+        http_url = f"http://localhost:8000/{output_path.name}"
+        print(
+            f"Wrote {result['entry_count']} entry point flows to {output_path} using target {result['target']}"
+        )
+        print(f"Open in browser: {http_url}")
 
 
 if __name__ == "__main__":
