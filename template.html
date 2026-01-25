@@ -2555,15 +2555,15 @@
       }, 1000);
     };
 
-    const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
-      if (!key) return false;
+    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
+      if (!key) return null;
       const mainFlow = document.getElementById('main-flow');
-      if (!mainFlow) return false;
+      if (!mainFlow) return null;
       let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
       if (!targets.length && !key.includes(':')) {
         targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
       }
-      if (!targets.length) return false;
+      if (!targets.length) return null;
       let target = targets[0];
       const pickNextByDepth = (candidates, originDepth) => {
         if (!Number.isFinite(originDepth)) return candidates[0];
@@ -2597,6 +2597,12 @@
           target = targets[0];
         }
       }
+      return target;
+    };
+
+    const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
+      const target = resolveFlowTargetElement(key, originNodeId, originContract, callKind, callContract);
+      if (!target) return false;
       const collapseKey = target?.getAttribute('data-collapse-key');
       if (collapseKey && target.classList.contains('node-collapsed')) {
         toggleNodeCollapse(collapseKey);
@@ -3039,6 +3045,7 @@
     let varTooltipEl = null;
     let fnTooltipEl = null;
     let functionSourceIndex = new Map();
+    let nodeSourceIndex = new Map();
 
     const getVarMetaMap = (tokenEl) => {
       const block = tokenEl?.closest?.('.code-block');
@@ -3244,7 +3251,15 @@
         hideFnTooltip();
         return;
       }
-      const source = functionSourceIndex.get(key);
+      const originNodeId = linkEl.getAttribute('data-fn-origin')
+        || linkEl.closest('[data-node-id]')?.getAttribute('data-node-id')
+        || '';
+      const originContract = linkEl.closest('[data-node-id]')?.getAttribute('data-node-contract') || '';
+      const callKind = linkEl.getAttribute('data-fn-call') || '';
+      const callContract = linkEl.getAttribute('data-fn-call-contract') || '';
+      const target = resolveFlowTargetElement(key, originNodeId, originContract, callKind, callContract);
+      const targetId = target?.getAttribute('data-node-id') || '';
+      const source = (targetId && nodeSourceIndex.get(targetId)) || functionSourceIndex.get(key);
       if (!source) {
         hideFnTooltip();
         return;
@@ -3783,7 +3798,9 @@
           .map(([name]) => name)
       );
       functionSourceIndex = new Map();
+      nodeSourceIndex = new Map();
       graph.forEach((node) => {
+        if (node?.id) nodeSourceIndex.set(node.id, node.code || '');
         const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
         if (!nameKey) return;
         const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
