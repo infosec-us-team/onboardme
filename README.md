@@ -30,6 +30,7 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 - ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
 - ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
 - ✅ Audit marks with a filter to focus on audited entry points
+- ⚠️ Warning marks to keep track of potentially buggy code
 - 📦 Collapsible function blocks with persisted state and synced collapse across identical code
 - 📋 Chain- and address-aware header with copy-to-clipboard hotkey
 - 🧭 Open contract in a block explorer via hotkey
@@ -81,6 +82,14 @@ This is especially useful for common modifiers like `onlyRole` and other repeate
 Hover or click any variable inside a function to highlight every occurrence. Storage variables glow red, memory variables glow blue.
 
 <img src="./resources/2.gif" alt="" style="width:600px; height:auto;">
+
+### ⚠️ Mark your progress
+
+Press 'm' to mark an entry point as audited. Press 'i' to mark an entry point as potentially buggy.
+
+Marks will save you time by skipping entry points you have fully audited in the past, and remind you to check again entry points you suspect to be vulnerable.
+
+<img src="./resources/8.png" alt="" style="width:300px; height:auto;">
 
 ### 🧭 Step-by-Step Mode
 

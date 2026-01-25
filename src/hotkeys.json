@@ -30,6 +30,9 @@
     "toggleAuditMark": [
       "m"
     ],
+    "toggleReviewMark": [
+      "i"
+    ],
     "toggleAuditFilter": [
       "h"
     ],
@@ -120,6 +123,10 @@
     {
       "action": "toggleAuditMark",
       "label": "Toggle audited mark"
+    },
+    {
+      "action": "toggleReviewMark",
+      "label": "Toggle needs-review flag"
     },
     {
       "action": "toggleAuditFilter",
