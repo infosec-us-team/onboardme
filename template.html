@@ -928,14 +928,17 @@
       const signature = (node.signature || node.functionName || node.name || '').trim();
       const contract = (node.contract || node.contractName || '').trim();
       const scope = appState.stepByStepEnabled ? (entryId || appState.activeFunctionId || '') : '';
+      const isEntryPoint = Number(node.depth) === 0;
       // Cross-contract collapse should be driven by identical code; only fall back to per-contract IDs.
       const basis = code || (signature ? `${signature}|${contract}` : '');
       if (basis) {
         const scopedBasis = scope ? `${scope}::${basis}` : basis;
-        return hashString(scopedBasis);
+        const keyedBasis = isEntryPoint ? `entry::${scopedBasis}` : scopedBasis;
+        return hashString(keyedBasis);
       }
       const fallback = normalizeId(node.id || 'node');
-      return scope ? hashString(`${scope}::${fallback}`) : fallback;
+      const scopedFallback = scope ? `${scope}::${fallback}` : fallback;
+      return isEntryPoint ? hashString(`entry::${scopedFallback}`) : scopedFallback;
     };
 
     const extractParamNames = (source = '') => {
