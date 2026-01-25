@@ -33,6 +33,9 @@
     "toggleReviewMark": [
       "i"
     ],
+    "toggleDimLine": [
+      "z"
+    ],
     "toggleAuditFilter": [
       "h"
     ],
@@ -127,6 +130,10 @@
     {
       "action": "toggleReviewMark",
       "label": "Toggle needs-review flag"
+    },
+    {
+      "action": "toggleDimLine",
+      "label": "Dim / undim hovered code line"
     },
     {
       "action": "toggleAuditFilter",

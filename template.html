@@ -471,6 +471,14 @@
       transform: translateY(0);
     }
 
+    .code-line {
+      transition: opacity 0.12s ease;
+    }
+
+    .code-line.line-dimmed {
+      opacity: 0.35;
+    }
+
     .review-toggle {
       width: 18px;
       height: 18px;
@@ -1083,12 +1091,17 @@
     const AUDIT_STORAGE_KEY = 'auditedEntryPoints';
     const AUDIT_FLOW_STORAGE_KEY = 'auditedEntryPointFlows';
     const REVIEW_FLOW_STORAGE_KEY = 'reviewFlaggedEntryPointFlows';
+    const DIMMED_LINES_STORAGE_KEY = 'dimmedEntryPointLines';
     const getAuditStorageKey = () => {
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${AUDIT_STORAGE_KEY}:${address}`;
     };
     const getAuditFlowStorageKey = () => AUDIT_FLOW_STORAGE_KEY;
     const getReviewFlowStorageKey = () => REVIEW_FLOW_STORAGE_KEY;
+    const getDimmedLinesStorageKey = () => {
+      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
+      return `${DIMMED_LINES_STORAGE_KEY}:${address}`;
+    };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
     const STEP_BY_STEP_STORAGE_KEY = 'stepByStepMode';
@@ -1120,6 +1133,8 @@
 
     let auditedFlowHashes = new Set();
     let reviewFlowHashes = new Set();
+    let dimmedLineKeys = new Set();
+    let activeLineKey = null;
     const loadStepByStepPreference = () => {
       try {
         const raw = localStorage.getItem(STEP_BY_STEP_STORAGE_KEY);
@@ -1416,6 +1431,40 @@
       if (!appState.activeFunctionId) return null;
       const fn = functionList.find((entry) => entry.id === appState.activeFunctionId);
       return fn?.flowHash || fn?.id || null;
+    };
+
+    const loadDimmedLines = () => {
+      try {
+        const raw = localStorage.getItem(getDimmedLinesStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) {
+          dimmedLineKeys = new Set(parsed.filter(Boolean));
+        }
+      } catch (_) {
+        dimmedLineKeys = new Set();
+      }
+    };
+
+    const persistDimmedLines = () => {
+      try {
+        localStorage.setItem(getDimmedLinesStorageKey(), JSON.stringify([...dimmedLineKeys]));
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const toggleDimmedLine = (lineKey) => {
+      if (!lineKey) return;
+      if (dimmedLineKeys.has(lineKey)) {
+        dimmedLineKeys.delete(lineKey);
+      } else {
+        dimmedLineKeys.add(lineKey);
+      }
+      persistDimmedLines();
+      const safeKey = lineKey.replace(/"/g, '\\"');
+      document.querySelectorAll(`[data-line-key="${safeKey}"]`).forEach((el) => {
+        el.classList.toggle('line-dimmed', dimmedLineKeys.has(lineKey));
+      });
     };
 
     const setCodeFontSize = (size, { persist = true } = {}) => {
@@ -2350,8 +2399,10 @@
       const rowsHtml = lines.map((line, i) => {
         const highlighted = highlightLineWithState(line, inBlockComment, i);
         inBlockComment = highlighted.inBlockComment;
+        const lineKey = `${originNodeId || 'node'}:${i + 1}`;
+        const dimmedClass = dimmedLineKeys.has(lineKey) ? 'line-dimmed' : '';
         return `
-                <div class="flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line">
+                <div class="code-line ${dimmedClass} flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-line-key="${lineKey}">
                   <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
                   <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlighted.html}</span>
                   <div class="absolute inset-0 ml-8 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
@@ -2936,6 +2987,13 @@
       if (scrollFlowToFunctionKey(key, originNodeId, originContract, callKind, callContract)) {
         event.preventDefault();
         event.stopPropagation();
+      }
+    });
+
+    document.addEventListener('mouseover', (event) => {
+      const lineEl = event.target.closest('[data-line-key]');
+      if (lineEl) {
+        activeLineKey = lineEl.getAttribute('data-line-key');
       }
     });
 
@@ -4187,6 +4245,7 @@
       loadCodeFontSize();
       loadReviewMarks();
       loadAuditMarks();
+      loadDimmedLines();
       loadCollapsedNodes();
       loadHideCollapsed();
       await loadHotkeyConfig();
@@ -4314,6 +4373,11 @@
           event.preventDefault();
           const reviewKey = getActiveReviewKey();
           if (reviewKey) toggleReview(reviewKey);
+        } else if (matchesAction(event, 'toggleDimLine')) {
+          if (activeLineKey) {
+            event.preventDefault();
+            toggleDimmedLine(activeLineKey);
+          }
         } else if (matchesAction(event, 'toggleAuditMark')) {
           event.preventDefault();
           const auditKey = getActiveAuditKey();
