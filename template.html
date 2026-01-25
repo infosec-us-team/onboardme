@@ -516,6 +516,11 @@
       cursor: default;
     }
 
+    .node-collapsed .node-header .node-header-icon,
+    .node-collapsed .node-header .node-header-title {
+      display: none;
+    }
+
     body.step-by-step-active .node-widget .node-header {
       display: none;
     }
@@ -693,7 +698,8 @@
     let lastAddressCopyAt = 0;
     let hotkeyConfig = { actions: {}, help: [] };
     let hotkeyBindings = new Map();
-    const COLLAPSED_STORAGE_LIMIT = 500;
+    const COLLAPSED_STORAGE_LIMIT = 3000;
+    const AUDIT_FLOW_STORAGE_LIMIT = 3000;
     let collapsedNodeIds = new Set();
     let collapsedNodeOrder = [];
 
@@ -1011,7 +1017,14 @@
         contract: step?.contract || '',
         kind: step?.kind || ''
       }));
-      return JSON.stringify(compact);
+      const stable = compact
+        .slice()
+        .sort((a, b) => {
+          const keyA = `${a.name}::${a.selector}::${a.contract}::${a.kind}`;
+          const keyB = `${b.name}::${b.selector}::${b.contract}::${b.kind}`;
+          return keyA.localeCompare(keyB);
+        });
+      return JSON.stringify(stable);
     };
 
     const buildDataFromJson = (entries = []) => {
@@ -1053,6 +1066,10 @@
             ...(Array.isArray(entry.state_variables_written) ? entry.state_variables_written : [])
           ];
           const variableScopes = buildVariableScopeMap(step.data_dependencies || [], entryStorageVars, step.source || '');
+          const nameKey = normalizeFunctionKey(step.functionName || step.signature || step.name || '');
+          const baseName = baseFunctionName(step.functionName || step.name || step.signature || '');
+          const arity = getDeclarationArityFromSource(step.source || '', baseName)
+            ?? parseSignatureArity(step.name || '');
           return {
             id: normalizeId(entry.entry_point || `fn_${idx}`, `node${stepIndex}`),
             depth: stepIndex,
@@ -1060,6 +1077,8 @@
             contractName: step.contract || entry.contract || 'Unknown',
             functionName: (step.name || `step_${stepIndex}`).split('.').slice(1).join('.'),
             signature: step.name || '',
+            nameKey,
+            arity,
             type: stepIndex === 0 ? 'entry-point' : 'internal',
             selector: step.selector || '',
             complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
@@ -1132,9 +1151,11 @@
     };
 
     let auditedFlowHashes = new Set();
+    let auditedFlowOrder = [];
     let reviewFlowHashes = new Set();
     let dimmedLineKeys = new Set();
     let activeLineKey = null;
+    const collapseKeyCache = new Map();
     const loadStepByStepPreference = () => {
       try {
         const raw = localStorage.getItem(STEP_BY_STEP_STORAGE_KEY);
@@ -1321,16 +1342,28 @@
         const raw = localStorage.getItem(getAuditFlowStorageKey());
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
-          auditedFlowHashes = new Set(parsed.filter(Boolean));
+          const seen = new Set();
+          const ordered = [];
+          parsed.forEach((key) => {
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            ordered.push(key);
+          });
+          const trimmed = ordered.length > AUDIT_FLOW_STORAGE_LIMIT
+            ? ordered.slice(-AUDIT_FLOW_STORAGE_LIMIT)
+            : ordered;
+          auditedFlowOrder = trimmed;
+          auditedFlowHashes = new Set(trimmed);
         }
       } catch (_) {
         auditedFlowHashes = new Set();
+        auditedFlowOrder = [];
       }
     };
 
     const persistAuditMarks = () => {
       try {
-        localStorage.setItem(getAuditFlowStorageKey(), JSON.stringify([...auditedFlowHashes]));
+        localStorage.setItem(getAuditFlowStorageKey(), JSON.stringify(auditedFlowOrder));
       } catch (_) {
         // Storage might be unavailable; ignore silently.
       }
@@ -1350,14 +1383,47 @@
       if (!id) return;
       if (auditedFlowHashes.has(id)) {
         auditedFlowHashes.delete(id);
+        const idx = auditedFlowOrder.indexOf(id);
+        if (idx !== -1) auditedFlowOrder.splice(idx, 1);
       } else {
         auditedFlowHashes.add(id);
+        const idx = auditedFlowOrder.indexOf(id);
+        if (idx !== -1) auditedFlowOrder.splice(idx, 1);
+        auditedFlowOrder.push(id);
+        if (auditedFlowOrder.length > AUDIT_FLOW_STORAGE_LIMIT) {
+          const overflow = auditedFlowOrder.length - AUDIT_FLOW_STORAGE_LIMIT;
+          const removed = auditedFlowOrder.splice(0, overflow);
+          removed.forEach((key) => auditedFlowHashes.delete(key));
+        }
       }
       if (persist) persistAuditMarks();
       if (!appState.showAudited) {
+        const activeIsAudited = appState.activeFunctionId
+          ? auditedFlowHashes.has(getActiveAuditKey() || '')
+          : false;
+        const activeHidden = !appState.showAudited && activeIsAudited;
         appState.lastAction = 'audit-mark';
-        refreshLeftSidebar();
-        updateSidebarSelection();
+        if (activeHidden) {
+          const visibleList = functionList.filter((fn) => !auditedFlowHashes.has(fn.flowHash || fn.id));
+          appState.activeFunctionId = visibleList[0]?.id || null;
+          refreshMainFlow();
+          if (!appState.storagePanelOpen && !appState.rightCollapsed) {
+            refreshRightSidebar();
+          }
+          if (appState.storagePanelOpen) {
+            updateStorageWriters();
+          }
+          updateSidebarSelection();
+          scrollActiveFunctionIntoView();
+        } else {
+          const toggleEl = document.querySelector(`[data-audit-id="${id}"]`);
+          if (toggleEl) {
+            const isAudited = auditedFlowHashes.has(id);
+            toggleEl.classList.toggle('is-active', isAudited);
+            toggleEl.setAttribute('aria-checked', isAudited ? 'true' : 'false');
+            toggleEl.setAttribute('aria-hidden', isAudited ? 'false' : 'true');
+          }
+        }
       } else {
         updateAuditMarksUI();
       }
@@ -1416,7 +1482,15 @@
         reviewFlowHashes.add(id);
       }
       if (persist) persistReviewMarks();
-      updateReviewMarksUI();
+      const toggleEl = document.querySelector(`[data-review-id="${id}"]`);
+      if (toggleEl) {
+        const isFlagged = reviewFlowHashes.has(id);
+        toggleEl.classList.toggle('is-active', isFlagged);
+        toggleEl.setAttribute('aria-checked', isFlagged ? 'true' : 'false');
+        toggleEl.setAttribute('aria-hidden', isFlagged ? 'false' : 'true');
+      } else {
+        updateReviewMarksUI();
+      }
     };
 
     const toggleReviewMark = (id, event) => {
@@ -1711,6 +1785,7 @@
       return map;
     };
 
+    const codeBlockCache = new Map();
     const renderCodeBlock = (code, functionInfo = null, variableScopeMap = null, variableRecords = [], originNodeId = '') => {
       const lineHeight = 'var(--code-line-height, 14px)';
       const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -1963,6 +2038,8 @@
       };
 
       const isInRanges = (index, ranges) => ranges.some(([start, end]) => index >= start && index < end);
+      let signatureIndex = null;
+      let lineOffsets = null;
 
       const originAttr = originNodeId ? ` data-fn-origin="${escapeHtml(originNodeId)}"` : '';
 
@@ -2387,24 +2464,33 @@
         return lines.map(strip);
       };
 
-      const lines = normalizeIndent(code);
-      const lineOffsets = [];
-      let runningOffset = 0;
-      lines.forEach((line, idx) => {
-        lineOffsets[idx] = runningOffset;
-        runningOffset += line.length + 1;
-      });
-      const signatureIndex = buildSignatureIndex(lines.join('\n'));
-      let inBlockComment = false;
+      const codeKey = `${originNodeId || 'node'}:${hashString(code || '')}`;
+      const cached = codeBlockCache.get(codeKey);
+      const lines = cached?.lines || normalizeIndent(code);
+      let highlightedLines = cached?.highlightedLines || null;
+      if (!highlightedLines) {
+        lineOffsets = [];
+        let runningOffset = 0;
+        lines.forEach((line, idx) => {
+          lineOffsets[idx] = runningOffset;
+          runningOffset += line.length + 1;
+        });
+        signatureIndex = buildSignatureIndex(lines.join('\n'));
+        let inBlockComment = false;
+        highlightedLines = lines.map((line, i) => {
+          const highlighted = highlightLineWithState(line, inBlockComment, i);
+          inBlockComment = highlighted.inBlockComment;
+          return highlighted.html;
+        });
+        codeBlockCache.set(codeKey, { lines, highlightedLines });
+      }
       const rowsHtml = lines.map((line, i) => {
-        const highlighted = highlightLineWithState(line, inBlockComment, i);
-        inBlockComment = highlighted.inBlockComment;
         const lineKey = `${originNodeId || 'node'}:${i + 1}`;
         const dimmedClass = dimmedLineKeys.has(lineKey) ? 'line-dimmed' : '';
         return `
                 <div class="code-line ${dimmedClass} flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-line-key="${lineKey}">
                   <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
-                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlighted.html}</span>
+                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlightedLines[i] || ''}</span>
                   <div class="absolute inset-0 ml-8 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
                 </div>
             `;
@@ -2711,15 +2797,15 @@
         : '';
       const content = `
                 <div class="node-header bg-gradient-to-r from-slate-900/50 via-[#0b1221] to-transparent p-4 border-b border-cyan-900/30 flex items-start justify-between" ${headerClickAttr} aria-expanded="${collapsed ? 'false' : 'true'}">
-                    <div class="flex items-center gap-4">
-                        <div class="p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
+                    <div class="flex items-center gap-4 self-center">
+                        <div class="node-header-icon p-2 rounded border bg-opacity-10 ${node.type === 'entry-point' ? 'bg-cyan-500 border-cyan-500/50' : 'bg-[#081020] border-cyan-900/40'}">
                             ${node.type === 'entry-point'
           ? iconSvg('zap', 'w-5 h-5 text-cyan-400')
           : iconSvg('layers', 'w-5 h-5 text-cyan-900')}
                         </div>
                         <div>
                             <div class="flex items-center gap-2">
-                                <h3 class="font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${safeName.length > 50 ? safeName.slice(0, 50) + '...' : safeName}"></h3>
+                                <h3 class="node-header-title font-display text-lg font-bold text-white tracking-wide typing-text" data-text="${safeName.length > 50 ? safeName.slice(0, 50) + '...' : safeName}"></h3>
                             </div>
                             <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
                                 ${iconSvg('box', 'w-3 h-3 text-cyan-600 animate-pulse')}
@@ -2891,27 +2977,46 @@
       }
     };
 
+    let lastActiveFunctionId = null;
+    const applySidebarSelection = (btn, isActive) => {
+      if (!btn) return;
+      btn.classList.toggle('bg-gradient-to-r', isActive);
+      btn.classList.toggle('from-cyan-950/60', isActive);
+      btn.classList.toggle('to-transparent', isActive);
+      btn.classList.toggle('border-cyan-400', isActive);
+      btn.classList.toggle('border-transparent', !isActive);
+      btn.classList.toggle('bg-transparent', !isActive);
+
+      const iconWrap = btn.querySelector('[data-role="fn-icon-wrap"]');
+      if (iconWrap) {
+        iconWrap.className = `w-6 h-6 flex items-center justify-center rounded-sm border ${isActive ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}`;
+      }
+
+      const title = btn.querySelector('[data-role="fn-title"]');
+      if (title) {
+        title.className = `font-display text-xs font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
+      }
+    };
+
     const updateSidebarSelection = () => {
-      const buttons = document.querySelectorAll('[data-fn-id]');
-      buttons.forEach((btn) => {
-        const isActive = btn.getAttribute('data-fn-id') === appState.activeFunctionId;
-        btn.classList.toggle('bg-gradient-to-r', isActive);
-        btn.classList.toggle('from-cyan-950/60', isActive);
-        btn.classList.toggle('to-transparent', isActive);
-        btn.classList.toggle('border-cyan-400', isActive);
-        btn.classList.toggle('border-transparent', !isActive);
-        btn.classList.toggle('bg-transparent', !isActive);
+      if (lastActiveFunctionId === appState.activeFunctionId) return;
+      const prevBtn = lastActiveFunctionId
+        ? document.querySelector(`[data-fn-id="${lastActiveFunctionId}"]`)
+        : null;
+      const nextBtn = appState.activeFunctionId
+        ? document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`)
+        : null;
 
-        const iconWrap = btn.querySelector('[data-role="fn-icon-wrap"]');
-        if (iconWrap) {
-          iconWrap.className = `w-6 h-6 flex items-center justify-center rounded-sm border ${isActive ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300' : 'border-cyan-900/40 bg-[#081020] text-slate-500 group-hover:border-cyan-700 group-hover:text-cyan-400'}`;
-        }
-
-        const title = btn.querySelector('[data-role="fn-title"]');
-        if (title) {
-          title.className = `font-display text-xs font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
-        }
-      });
+      if (prevBtn && nextBtn) {
+        applySidebarSelection(prevBtn, false);
+        applySidebarSelection(nextBtn, true);
+      } else {
+        document.querySelectorAll('[data-fn-id]').forEach((btn) => {
+          const isActive = btn.getAttribute('data-fn-id') === appState.activeFunctionId;
+          applySidebarSelection(btn, isActive);
+        });
+      }
+      lastActiveFunctionId = appState.activeFunctionId;
     };
 
     const cssEscape = (value) => {
@@ -3281,6 +3386,7 @@
     let fnTooltipEl = null;
     let functionSourceIndex = new Map();
     let nodeSourceIndex = new Map();
+    const sourceIndexCache = new Map();
 
     const getVarMetaMap = (tokenEl) => {
       const block = tokenEl?.closest?.('.code-block');
@@ -3993,10 +4099,21 @@
     const getHiddenCollapsedCount = () => {
       if (!appState.hideCollapsed) return 0;
       const graph = callGraphs[appState.activeFunctionId] || [];
-      return graph.reduce((acc, node) => {
-        if (node?.depth === 0) return acc;
-        return acc + (isNodeCollapsed(getNodeCollapseKey(node, { entryId: appState.activeFunctionId })) ? 1 : 0);
-      }, 0);
+      if (!graph.length) return 0;
+      const scopeKey = appState.stepByStepEnabled
+        ? `step:${appState.activeFunctionId || ''}`
+        : `free:${appState.activeFunctionId || ''}`;
+      let cached = collapseKeyCache.get(scopeKey);
+      if (!cached || cached.count !== graph.length) {
+        const keys = [];
+        graph.forEach((node) => {
+          if (!node || node.depth === 0) return;
+          keys.push(getNodeCollapseKey(node, { entryId: appState.activeFunctionId }));
+        });
+        cached = { keys, count: graph.length };
+        collapseKeyCache.set(scopeKey, cached);
+      }
+      return cached.keys.reduce((acc, key) => acc + (isNodeCollapsed(key) ? 1 : 0), 0);
     };
 
     const updateExecutionStreamLabel = () => {
@@ -4021,11 +4138,13 @@
       const nameArityMap = new Map();
       const nameCounts = new Map();
       graph.forEach((node) => {
-        const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
+        const nameKey = node.nameKey || normalizeFunctionKey(node.functionName || node.signature || node.name || '');
         if (!nameKey) return;
         nameCounts.set(nameKey, (nameCounts.get(nameKey) || 0) + 1);
-        const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
-          ?? parseSignatureArity(node.signature || '');
+        const arity = Number.isFinite(node.arity)
+          ? node.arity
+          : (getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
+            ?? parseSignatureArity(node.signature || ''));
         if (arity === null) return;
         if (!nameArityMap.has(nameKey)) nameArityMap.set(nameKey, new Set());
         nameArityMap.get(nameKey).add(arity);
@@ -4035,22 +4154,32 @@
           .filter(([, count]) => count === 1)
           .map(([name]) => name)
       );
-      functionSourceIndex = new Map();
-      nodeSourceIndex = new Map();
-      graph.forEach((node) => {
-        if (node?.id) nodeSourceIndex.set(node.id, node.code || '');
-        const nameKey = normalizeFunctionKey(node.functionName || node.signature || node.name || '');
+      const cacheKey = appState.activeFunctionId || '';
+      const cachedSources = sourceIndexCache.get(cacheKey);
+      if (cachedSources) {
+        functionSourceIndex = cachedSources.functionSourceIndex;
+        nodeSourceIndex = cachedSources.nodeSourceIndex;
+      } else {
+        functionSourceIndex = new Map();
+        nodeSourceIndex = new Map();
+        graph.forEach((node) => {
+          if (node?.id) nodeSourceIndex.set(node.id, node.code || '');
+        const nameKey = node.nameKey || normalizeFunctionKey(node.functionName || node.signature || node.name || '');
         if (!nameKey) return;
-        const arity = getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
-          ?? parseSignatureArity(node.signature || '');
+        const arity = Number.isFinite(node.arity)
+          ? node.arity
+          : (getDeclarationArityFromSource(node.code || '', baseFunctionName(node.functionName || node.name || node.signature || ''))
+            ?? parseSignatureArity(node.signature || ''));
         if (arity !== null) {
           const key = `${nameKey}:${arity}`;
-          if (!functionSourceIndex.has(key)) functionSourceIndex.set(key, node.code || '');
-        }
-        if (uniqueNames.has(nameKey) && !functionSourceIndex.has(nameKey)) {
-          functionSourceIndex.set(nameKey, node.code || '');
-        }
-      });
+            if (!functionSourceIndex.has(key)) functionSourceIndex.set(key, node.code || '');
+          }
+          if (uniqueNames.has(nameKey) && !functionSourceIndex.has(nameKey)) {
+            functionSourceIndex.set(nameKey, node.code || '');
+          }
+        });
+        sourceIndexCache.set(cacheKey, { functionSourceIndex, nodeSourceIndex });
+      }
       const knownContractsLower = new Set(
         graph
           .map((node) => (node.contractName || node.contract || '').trim())
