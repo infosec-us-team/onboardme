@@ -1,6 +1,7 @@
 """Generate a JSON file describing entry-point execution flows with state variable info."""
 
 import argparse
+import json
 import hashlib
 import logging
 import threading
@@ -61,6 +62,159 @@ def _resolve_contract_name_from_export(address: str, chain: str) -> str | None:
     return None
 
 
+def _find_contract_name_in_metadata(payload: Any) -> str | None:
+    """Recursively search JSON-like payloads for a contract name."""
+    keys = {
+        "contractname",
+        "contract_name",
+        "maincontract",
+        "main_contract",
+    }
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if isinstance(key, str) and key.strip().lower() in keys and isinstance(value, str):
+                candidate = value.strip()
+                if candidate:
+                    return candidate
+        for value in payload.values():
+            candidate = _find_contract_name_in_metadata(value)
+            if candidate:
+                return candidate
+        return None
+    if isinstance(payload, list):
+        for item in payload:
+            candidate = _find_contract_name_in_metadata(item)
+            if candidate:
+                return candidate
+        return None
+    if isinstance(payload, str):
+        # Some metadata blobs are JSON strings.
+        stripped = payload.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                return _find_contract_name_in_metadata(json.loads(stripped))
+            except Exception:
+                return None
+    return None
+
+
+def _collect_solidity_pragma_versions(slither: Slither) -> List[str]:
+    """Collect unique Solidity pragma constraints from Slither compilation units."""
+    seen: set[str] = set()
+    ordered: List[str] = []
+
+    def _record(value: str) -> None:
+        if not value:
+            return
+        text = value.strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        ordered.append(text)
+
+    units = getattr(slither, "compilation_units", None) or []
+    if not units:
+        cc = getattr(slither, "crytic_compile", None) or getattr(slither, "_crytic_compile", None)
+        units = getattr(cc, "compilation_units", None) or []
+
+    for unit in units or []:
+        for pragma in getattr(unit, "pragma_directives", []) or []:
+            if getattr(pragma, "is_solidity_version", False):
+                _record(getattr(pragma, "version", "") or "")
+
+    if not ordered:
+        for pragma in getattr(slither, "pragma_directives", []) or []:
+            if getattr(pragma, "is_solidity_version", False):
+                _record(getattr(pragma, "version", "") or "")
+
+    return ordered
+
+
+def _format_solidity_version_label(versions: Sequence[str]) -> str:
+    """Format a solidity pragma label for UI."""
+    versions = [v for v in versions if v]
+    if not versions:
+        return "pragma unknown"
+    return f"pragma solidity {' | '.join(versions)}"
+
+
+def _load_json_if_small(path: Path, max_bytes: int = 5_000_000) -> Any | None:
+    """Load a JSON file if it exists and is below max_bytes."""
+    try:
+        if not path.exists() or not path.is_file():
+            return None
+        if path.stat().st_size > max_bytes:
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _resolve_contract_name_from_export_metadata(address: str, chain: str) -> str | None:
+    """Try to infer the verified contract name from crytic-export metadata files."""
+    export_root = Path("crytic-export") / "etherscan-contracts"
+    if not export_root.exists():
+        return None
+    prefix = f"{_normalize_address(address)}{chain.lower()}-"
+    for entry in export_root.iterdir():
+        if not entry.is_dir():
+            continue
+        if not entry.name.lower().startswith(prefix):
+            continue
+        # Prefer known small metadata files.
+        for name in ("contract.json", "metadata.json", "manifest.json"):
+            payload = _load_json_if_small(entry / name)
+            candidate = _find_contract_name_in_metadata(payload)
+            if candidate:
+                return candidate
+        # Fall back to any small JSON file in the directory.
+        for json_path in entry.glob("*.json"):
+            payload = _load_json_if_small(json_path)
+            candidate = _find_contract_name_in_metadata(payload)
+            if candidate:
+                return candidate
+    return None
+
+
+def _resolve_contract_name_from_slither_metadata(slither: Slither) -> str | None:
+    """Best-effort lookup for deployed contract name in Slither metadata."""
+    for attr in ("metadata", "compiler_metadata"):
+        candidate = _find_contract_name_in_metadata(getattr(slither, attr, None))
+        if candidate:
+            return candidate
+    for attr in ("crytic_compile", "_crytic_compile"):
+        cc = getattr(slither, attr, None)
+        if not cc:
+            continue
+        for cc_attr in ("metadata", "compiler_metadata"):
+            candidate = _find_contract_name_in_metadata(getattr(cc, cc_attr, None))
+            if candidate:
+                return candidate
+        compilation_units = getattr(cc, "compilation_units", None) or []
+        for unit in compilation_units:
+            for unit_attr in ("metadata", "compiler_metadata"):
+                candidate = _find_contract_name_in_metadata(getattr(unit, unit_attr, None))
+                if candidate:
+                    return candidate
+    for unit in getattr(slither, "compilation_units", []) or []:
+        for unit_attr in ("metadata", "compiler_metadata"):
+            candidate = _find_contract_name_in_metadata(getattr(unit, unit_attr, None))
+            if candidate:
+                return candidate
+    return None
+
+
+def _contracts_by_name(slither: Slither, name_hint: str) -> List[Contract]:
+    """Return Slither contracts matching name_hint (case-insensitive fallback)."""
+    if not name_hint:
+        return []
+    exact = [c for c in slither.contracts if c.name == name_hint]
+    if exact:
+        return exact
+    lowered = name_hint.lower()
+    return [c for c in slither.contracts if c.name.lower() == lowered]
+
+
 def _resolve_root_contracts(slither: Slither, address: str, chain: str) -> List[Contract]:
     """Return the deployed contract(s) for the address, if detectable."""
     target = _normalize_address(address)
@@ -78,11 +232,15 @@ def _resolve_root_contracts(slither: Slither, address: str, chain: str) -> List[
     if matches:
         return matches
 
-    name_hint = _resolve_contract_name_from_export(address, chain)
+    name_hint = _resolve_contract_name_from_slither_metadata(slither)
+    if not name_hint:
+        name_hint = _resolve_contract_name_from_export_metadata(address, chain)
+    if not name_hint:
+        name_hint = _resolve_contract_name_from_export(address, chain)
     if not name_hint:
         return []
 
-    return [c for c in slither.contracts if c.name == name_hint]
+    return _contracts_by_name(slither, name_hint)
 
 
 def _local_project_hash(path: Path) -> str:
@@ -266,39 +424,55 @@ def generate_html(
         stop_fetch.set()
         heartbeat_thread.join(timeout=1.0)
     _report_progress(progress_cb, "Compiler analysis completed")
+    solidity_versions = _collect_solidity_pragma_versions(slither)
+    solidity_label = _format_solidity_version_label(solidity_versions)
 
     _report_progress(progress_cb, "Resolving deployed contract")
-    root_contracts = _resolve_root_contracts(slither, address, chain)
-    _report_progress(progress_cb, "Building entry point flows")
-    data = build_entry_point_flows(slither, root_contracts, progress_cb=progress_cb)
+    resolved_contracts = _resolve_root_contracts(slither, address, chain)
+    root_contracts = _select_local_root_contracts(slither)
+    if not root_contracts:
+        raise ValueError("No deployable contracts found for the address")
 
-    metadata = _collect_render_metadata(slither, root_contracts)
-    audited_contracts = metadata["audited_contracts"]
-    if audited_contracts:
-        title_contract = audited_contracts[0].name
-    else:
-        title_contract = f"{chain}:{address}"
+    _report_progress(progress_cb, "Building entry point flows")
+    contract_views: Dict[str, Dict[str, Any]] = {}
+    for contract in root_contracts:
+        data = build_entry_point_flows(slither, [contract], progress_cb=progress_cb)
+        metadata = _collect_render_metadata(slither, [contract])
+        contract_views[contract.name] = {
+            "entries": data,
+            "extra_storage_vars": metadata["extra_storage_vars"],
+            "type_aliases": metadata["type_aliases"],
+            "libraries": metadata["libraries"],
+            "events": metadata["events"],
+            "interfaces": metadata["interfaces"],
+        }
+
+    default_contract = root_contracts[0].name
+    resolved_name = None
+    if resolved_contracts:
+        resolved_name = resolved_contracts[0].name
+        if resolved_name in contract_views:
+            default_contract = resolved_name
+    title_contract = default_contract or f"{chain}:{address}"
     output_path = render_html(
-        data,
+        contract_views,
+        default_contract,
         chain,
         address,
         title_contract,
-        extra_storage_vars=metadata["extra_storage_vars"],
-        type_aliases=metadata["type_aliases"],
-        libraries=metadata["libraries"],
-        events=metadata["events"],
-        interfaces=metadata["interfaces"],
+        solidity_label,
         output_dir=output_dir,
         progress_cb=progress_cb,
     )
 
-    contract_names = sorted({entry.get("contract", "")
-                            for entry in data if entry.get("contract")})
+    contract_names = sorted(contract_views.keys())
 
     return {
         "output_path": output_path,
         "contracts": contract_names,
-        "entry_count": len(data),
+        "deployed_contract": resolved_name,
+        "default_contract": default_contract,
+        "entry_count": sum(len(view.get("entries", [])) for view in contract_views.values()),
         "target": target,
     }
 
@@ -322,6 +496,8 @@ def generate_from_local(
     except Exception as exc:
         raise ValueError(f"Compilation failed for {path}: {exc}") from exc
     _report_progress(progress_cb, "Compiler analysis completed")
+    solidity_versions = _collect_solidity_pragma_versions(slither)
+    solidity_label = _format_solidity_version_label(solidity_versions)
 
     root_contracts = _select_local_root_contracts(slither)
     if not root_contracts:
@@ -335,20 +511,27 @@ def generate_from_local(
         metadata = _collect_render_metadata(slither, [contract])
 
         output_address = f"{project_hash}_{contract.name}"
+        contract_views = {
+            contract.name: {
+                "entries": data,
+                "extra_storage_vars": metadata["extra_storage_vars"],
+                "type_aliases": metadata["type_aliases"],
+                "libraries": metadata["libraries"],
+                "events": metadata["events"],
+                "interfaces": metadata["interfaces"],
+            }
+        }
         output_path = render_html(
-            data,
+            contract_views,
+            contract.name,
             "local",
             output_address,
             contract.name,
-            extra_storage_vars=metadata["extra_storage_vars"],
-            type_aliases=metadata["type_aliases"],
-            libraries=metadata["libraries"],
-            events=metadata["events"],
-            interfaces=metadata["interfaces"],
+            solidity_label,
             progress_cb=progress_cb,
         )
 
-        contract_names = sorted({entry.get("contract", "") for entry in data if entry.get("contract")})
+        contract_names = [contract.name]
         results.append(
             {
                 "output_path": output_path,

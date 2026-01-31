@@ -19,21 +19,11 @@ def _report_progress(callback: ProgressCallback | None, message: str, **meta: An
         pass
 
 
-def render_html(
+def _build_storage_payload(
     data: List[Dict[str, Any]],
-    chain: str,
-    address: str,
-    title_contract: str,
     extra_storage_vars: List[Dict[str, Any]] | None = None,
-    type_aliases: List[Dict[str, Any]] | None = None,
-    libraries: List[Dict[str, Any]] | None = None,
-    events: List[Dict[str, Any]] | None = None,
-    interfaces: List[Dict[str, Any]] | None = None,
-    output_dir: Path | None = None,
-    progress_cb: ProgressCallback | None = None,
-) -> Path:
-    """Render and write the entry-point HTML, returning the output path."""
-    _report_progress(progress_cb, "Indexing storage variables")
+) -> tuple[List[Dict[str, Any]], Dict[str, List[str]]]:
+    """Compute storage variables list + writers index for a contract view."""
     storage_vars_map: Dict[str, Dict[str, Any]] = {}
     writers_index: Dict[str, List[str]] = {}
     for entry in data:
@@ -59,51 +49,66 @@ def render_html(
         storage_vars_map.values(),
         key=lambda v: ((v.get("qualified_name") or v.get("name") or "").lower()),
     )
+    return storage_vars, writers_index
+
+
+def render_html(
+    contract_views: Dict[str, Dict[str, Any]],
+    default_contract: str,
+    chain: str,
+    address: str,
+    title_contract: str,
+    solidity_version: str | None = None,
+    contract_name: str | None = None,
+    output_dir: Path | None = None,
+    progress_cb: ProgressCallback | None = None,
+) -> Path:
+    """Render and write the entry-point HTML, returning the output path."""
+    _report_progress(progress_cb, "Indexing storage variables")
+    rendered_views: Dict[str, Dict[str, Any]] = {}
+    for name, view in contract_views.items():
+        data = view.get("entries", [])
+        storage_vars, writers_index = _build_storage_payload(
+            data, view.get("extra_storage_vars")
+        )
+        rendered_views[name] = {
+            "entries": data,
+            "storage_variables": storage_vars,
+            "type_aliases": view.get("type_aliases") or [],
+            "libraries": view.get("libraries") or [],
+            "events": view.get("events") or [],
+            "interfaces": view.get("interfaces") or [],
+            "storage_writers_index": writers_index,
+        }
+
+    contract_list = sorted(rendered_views.keys())
 
     template_path = Path("template.html")
     _report_progress(progress_cb, "Rendering template")
     template_html = template_path.read_text(encoding="utf-8")
 
-    data_json = json.dumps(data, ensure_ascii=False, indent=2)
-    inner_json = data_json[1:-1].strip() if len(data_json) > 2 else ""
-    storage_vars_json = json.dumps(storage_vars, ensure_ascii=False, indent=2)
-    storage_vars_inner = (
-        storage_vars_json[1:-1].strip() if len(storage_vars_json) > 2 else ""
-    )
-    type_aliases_json = json.dumps(type_aliases or [], ensure_ascii=False, indent=2)
-    type_aliases_inner = (
-        type_aliases_json[1:-1].strip() if len(type_aliases_json) > 2 else ""
-    )
-    libraries_json = json.dumps(libraries or [], ensure_ascii=False, indent=2)
-    libraries_inner = (
-        libraries_json[1:-1].strip() if len(libraries_json) > 2 else ""
-    )
-    events_json = json.dumps(events or [], ensure_ascii=False, indent=2)
-    events_inner = events_json[1:-1].strip() if len(events_json) > 2 else ""
-    interfaces_json = json.dumps(interfaces or [], ensure_ascii=False, indent=2)
-    interfaces_inner = interfaces_json[1:-1].strip() if len(interfaces_json) > 2 else ""
-    writers_index_json = json.dumps(writers_index, ensure_ascii=False, indent=2)
+    views_json = json.dumps(rendered_views, ensure_ascii=False, indent=2)
+    contract_list_json = json.dumps(contract_list, ensure_ascii=False, indent=2)
+    default_contract_json = json.dumps(default_contract, ensure_ascii=False)
 
     filled_html = template_html.replace(
         "REPLACE_THIS_WITH_TITLE", title_contract
     ).replace(
-        "REPLACE_THIS_WITH_ENTRY_POINTS_DATA", inner_json
+        "REPLACE_THIS_WITH_CONTRACT_VIEWS", views_json
     ).replace(
-        "REPLACE_THIS_WITH_STORAGE_VARIABLES", storage_vars_inner
+        "REPLACE_THIS_WITH_CONTRACT_LIST", contract_list_json
     ).replace(
-        "REPLACE_THIS_WITH_TYPE_ALIASES", type_aliases_inner
-    ).replace(
-        "REPLACE_THIS_WITH_LIBRARIES", libraries_inner
-    ).replace(
-        "REPLACE_THIS_WITH_EVENTS", events_inner
-    ).replace(
-        "REPLACE_THIS_WITH_INTERFACES", interfaces_inner
-    ).replace(
-        "REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX", writers_index_json
+        "REPLACE_THIS_WITH_DEFAULT_CONTRACT", default_contract_json
     ).replace(
         "REPLACE_THIS_WITH_CHAIN", chain
     ).replace(
         "REPLACE_THIS_WITH_ADDRESS", address
+    ).replace(
+        "REPLACE_THIS_WITH_SOLIDITY_VERSION",
+        solidity_version or "SOLIDITY VERSION UNKNOWN",
+    ).replace(
+        "REPLACE_THIS_WITH_CONTRACT_NAME",
+        contract_name or title_contract,
     )
 
     output_dir = output_dir or Path("src")
