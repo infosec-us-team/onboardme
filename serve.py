@@ -99,12 +99,16 @@ def run(directory: Path, host: str, port: int) -> None:
                 result = flow_gen.generate_html(address, chain, output_dir=directory)
                 filename = result["output_path"].name
                 contract_names = result.get("contracts", [])
+                primary_contract = (
+                    result.get("deployed_contract") or (contract_names[0] if contract_names else None)
+                )
                 self._update_registry(
                     directory,
                     address=address,
                     chain=chain,
                     filename=filename,
                     contract_names=contract_names,
+                    primary_contract=primary_contract,
                 )
                 self._json_response(
                     200,
@@ -113,6 +117,8 @@ def run(directory: Path, host: str, port: int) -> None:
                         "file": filename,
                         "url": f"/{filename}",
                         "contracts": contract_names,
+                        "primary_contract": primary_contract,
+                        "deployed_contract": result.get("deployed_contract"),
                     },
                 )
             except ValueError as exc:
@@ -164,6 +170,9 @@ def run(directory: Path, host: str, port: int) -> None:
                 )
                 filename = result["output_path"].name
                 contract_names = result.get("contracts", [])
+                primary_contract = (
+                    result.get("deployed_contract") or (contract_names[0] if contract_names else None)
+                )
                 emit("progress", {"message": "Updating registry"})
                 self._update_registry(
                     directory,
@@ -171,6 +180,7 @@ def run(directory: Path, host: str, port: int) -> None:
                     chain=chain,
                     filename=filename,
                     contract_names=contract_names,
+                    primary_contract=primary_contract,
                 )
                 emit(
                     "done",
@@ -179,6 +189,8 @@ def run(directory: Path, host: str, port: int) -> None:
                         "file": filename,
                         "url": f"/{filename}",
                         "contracts": contract_names,
+                        "primary_contract": primary_contract,
+                        "deployed_contract": result.get("deployed_contract"),
                     },
                 )
             except ValueError as exc:
@@ -223,7 +235,15 @@ def run(directory: Path, host: str, port: int) -> None:
             if not keep_open:
                 self.wfile.flush()
 
-        def _update_registry(self, base_dir: Path, address: str, chain: str, filename: str, contract_names: list[str]):
+        def _update_registry(
+            self,
+            base_dir: Path,
+            address: str,
+            chain: str,
+            filename: str,
+            contract_names: list[str],
+            primary_contract: str | None = None,
+        ):
             registry_path = base_dir / "registry.json"
             try:
                 current = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -248,7 +268,7 @@ def run(directory: Path, host: str, port: int) -> None:
                 "chain": chain,
                 "path": f"/{filename}",
                 "contracts": contract_names,
-                "primary_contract": contract_names[0] if contract_names else None,
+                "primary_contract": primary_contract or (contract_names[0] if contract_names else None),
             }
             current.append(entry)
             registry_path.write_text(json.dumps(current, indent=2), encoding="utf-8")

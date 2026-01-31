@@ -41,6 +41,21 @@
       font-family: 'Orbitron', sans-serif;
     }
 
+    .contract-select {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: none;
+    }
+
+    .contract-select option {
+      background-color: #020712;
+      color: #8ce8ff;
+      font-family: 'Rajdhani', sans-serif;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
     /* --- GLOBAL FX --- */
 
 
@@ -665,25 +680,28 @@
       acc[entry.id] = entry.host;
       return acc;
     }, {});
-    const ENTRY_POINTS_DATA = [
-      REPLACE_THIS_WITH_ENTRY_POINTS_DATA
-    ];
-    const STORAGE_VARIABLES = [
-      REPLACE_THIS_WITH_STORAGE_VARIABLES
-    ];
-    const TYPE_ALIASES = [
-      REPLACE_THIS_WITH_TYPE_ALIASES
-    ];
-    const LIBRARIES = [
-      REPLACE_THIS_WITH_LIBRARIES
-    ];
-    const EVENTS = [
-      REPLACE_THIS_WITH_EVENTS
-    ];
-    const INTERFACES = [
-      REPLACE_THIS_WITH_INTERFACES
-    ];
-    const STORAGE_WRITERS_INDEX = REPLACE_THIS_WITH_STORAGE_WRITERS_INDEX;
+    const CONTRACT_VIEWS = REPLACE_THIS_WITH_CONTRACT_VIEWS;
+    const CONTRACT_LIST = REPLACE_THIS_WITH_CONTRACT_LIST;
+    const DEFAULT_CONTRACT = REPLACE_THIS_WITH_DEFAULT_CONTRACT;
+    const getContractEntryCount = (name) => {
+      const view = CONTRACT_VIEWS?.[name] || {};
+      const entries = Array.isArray(view.entries) ? view.entries : [];
+      return entries.length;
+    };
+    const getSelectableContracts = () => {
+      const list = Array.isArray(CONTRACT_LIST) && CONTRACT_LIST.length
+        ? CONTRACT_LIST
+        : Object.keys(CONTRACT_VIEWS || {});
+      return list.filter((name) => getContractEntryCount(name) > 0);
+    };
+    let activeContract = DEFAULT_CONTRACT;
+    let ENTRY_POINTS_DATA = [];
+    let STORAGE_VARIABLES = [];
+    let TYPE_ALIASES = [];
+    let LIBRARIES = [];
+    let EVENTS = [];
+    let INTERFACES = [];
+    let STORAGE_WRITERS_INDEX = {};
     let functionList = [];
     let callGraphs = {};
     let stateReadsByFunction = {};
@@ -692,6 +710,7 @@
 
     let deviceGuardEl = null;
     let searchPaletteEl = null;
+    let contractPaletteEl = null;
     let hotkeyHelpEl = null;
     let outroOverlay = null;
     let addressCopyTimeout = null;
@@ -928,14 +947,17 @@
       const signature = (node.signature || node.functionName || node.name || '').trim();
       const contract = (node.contract || node.contractName || '').trim();
       const scope = appState.stepByStepEnabled ? (entryId || appState.activeFunctionId || '') : '';
+      const isEntryPoint = Number(node.depth) === 0;
       // Cross-contract collapse should be driven by identical code; only fall back to per-contract IDs.
       const basis = code || (signature ? `${signature}|${contract}` : '');
       if (basis) {
         const scopedBasis = scope ? `${scope}::${basis}` : basis;
-        return hashString(scopedBasis);
+        const keyedBasis = isEntryPoint ? `entry::${scopedBasis}` : scopedBasis;
+        return hashString(keyedBasis);
       }
       const fallback = normalizeId(node.id || 'node');
-      return scope ? hashString(`${scope}::${fallback}`) : fallback;
+      const scopedFallback = scope ? `${scope}::${fallback}` : fallback;
+      return isEntryPoint ? hashString(`entry::${scopedFallback}`) : scopedFallback;
     };
 
     const extractParamNames = (source = '') => {
@@ -1009,21 +1031,33 @@
       return scopeMap;
     };
 
+    // INFO: Commented the previous implementation in case we break something while fixing this
+    //
+    //const buildFlowSignature = (entry) => {
+    //  const flow = Array.isArray(entry?.flow) ? entry.flow : [];
+    //  const compact = flow.map((step) => ({
+    //    name: step?.name || '',
+    //    selector: step?.selector || '',
+    //    contract: step?.contract || '',
+    //    kind: step?.kind || ''
+    //  }));
+    //  const stable = compact
+    //    .slice()
+    //    .sort((a, b) => {
+    //      const keyA = `${a.name}::${a.selector}::${a.contract}::${a.kind}`;
+    //      const keyB = `${b.name}::${b.selector}::${b.contract}::${b.kind}`;
+    //      return keyA.localeCompare(keyB);
+    //    });
+    //  return JSON.stringify(stable);
+    //};
+
     const buildFlowSignature = (entry) => {
       const flow = Array.isArray(entry?.flow) ? entry.flow : [];
-      const compact = flow.map((step) => ({
-        name: step?.name || '',
-        selector: step?.selector || '',
-        contract: step?.contract || '',
-        kind: step?.kind || ''
-      }));
-      const stable = compact
-        .slice()
-        .sort((a, b) => {
-          const keyA = `${a.name}::${a.selector}::${a.contract}::${a.kind}`;
-          const keyB = `${b.name}::${b.selector}::${b.contract}::${b.kind}`;
-          return keyA.localeCompare(keyB);
-        });
+      
+      const stable = flow
+      .map(step => step?.source || '')
+      .slice()
+      .sort((a, b) => a.localeCompare(b));
       return JSON.stringify(stable);
     };
 
@@ -1134,6 +1168,12 @@
       rightCollapsed: true,
       lastAction: 'init',
       search: {
+        open: false,
+        query: '',
+        selectedIndex: 0,
+        results: []
+      },
+      contractSearch: {
         open: false,
         query: '',
         selectedIndex: 0,
@@ -2811,9 +2851,7 @@
                                 ${iconSvg('box', 'w-3 h-3 text-cyan-600 animate-pulse')}
                                 <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">${node.contractName}.sol</span>
                                 ${iconSvg('code', 'w-3 h-3 text-green-600 animate-pulse')}
-                                <div class="text-green-600 font-mono flex items-center font-bold mt-[1px]">${node.signature} </div>
-                                ${iconSvg('radical', 'w-3 h-3 text-purple-400 animate-pulse')}
-                                <div class="text-purple-400 font-mono flex items-center font-bold mt-[1px]">COMPLEXITY LVL. ${node.complexity} </div>
+                                <div class="text-green-600 font-mono flex items-center font-bold mt-[1px]"> ${node.signature.split('.', 2)[1] || node.signature} </div>
                             </div>
                         </div>
                     </div>
@@ -3303,90 +3341,157 @@
       return list.slice(0, 25);
     };
 
+    const filterContracts = (q = '') => {
+      const list = getSelectableContracts();
+      const needle = q.trim().toLowerCase();
+      const filtered = needle
+        ? list.filter((name) => (name || '').toLowerCase().includes(needle))
+        : list;
+      return filtered.slice(0, 25);
+    };
+
     const storageVarLabel = (item) => (item?.qualified_name || item?.name || '').trim();
 
-    const storageVarIndex = (() => {
-      const byName = new Map();
+    let storageVarIndex = new Map();
+    let storageStructIndex = new Map();
+    let typeAliasIndex = new Map();
+    let libraryIndex = new Map();
+    let eventIndex = new Map();
+    let interfaceIndex = new Map();
+
+    const rebuildContractIndexes = () => {
+      const varIndex = new Map();
       STORAGE_VARIABLES.forEach((item) => {
         const label = storageVarLabel(item);
         if (!label) return;
         const name = label.split('.').pop() || label;
         if (!name) return;
-        const list = byName.get(name) || [];
+        const list = varIndex.get(name) || [];
         list.push(item);
-        byName.set(name, list);
+        varIndex.set(name, list);
       });
-      return byName;
-    })();
+      storageVarIndex = varIndex;
 
-    const storageStructIndex = (() => {
-      const byName = new Map();
+      const structIndex = new Map();
       STORAGE_VARIABLES.forEach((item) => {
         const structName = item?.struct?.name || '';
-        if (!structName || byName.has(structName)) return;
-        byName.set(structName, {
+        if (!structName || structIndex.has(structName)) return;
+        structIndex.set(structName, {
           name: structName,
           struct: item.struct,
           source: item?.struct?.source || '',
           kind: 'struct'
         });
       });
-      return byName;
-    })();
+      storageStructIndex = structIndex;
 
-    const typeAliasIndex = (() => {
-      const byName = new Map();
+      const aliasIndex = new Map();
       TYPE_ALIASES.forEach((item) => {
         const name = (item?.name || '').trim();
         if (!name) return;
-        const list = byName.get(name) || [];
+        const list = aliasIndex.get(name) || [];
         list.push(item);
-        byName.set(name, list);
+        aliasIndex.set(name, list);
       });
-      return byName;
-    })();
+      typeAliasIndex = aliasIndex;
 
-    const libraryIndex = (() => {
-      const byName = new Map();
+      const libIndex = new Map();
       LIBRARIES.forEach((item) => {
         const name = (item?.name || '').trim();
         if (!name) return;
-        const list = byName.get(name) || [];
+        const list = libIndex.get(name) || [];
         list.push(item);
-        byName.set(name, list);
+        libIndex.set(name, list);
       });
-      return byName;
-    })();
+      libraryIndex = libIndex;
 
-    const eventIndex = (() => {
-      const byName = new Map();
+      const evtIndex = new Map();
       EVENTS.forEach((item) => {
         const name = (item?.name || '').trim();
         if (!name) return;
-        const list = byName.get(name) || [];
+        const list = evtIndex.get(name) || [];
         list.push(item);
-        byName.set(name, list);
+        evtIndex.set(name, list);
       });
-      return byName;
-    })();
+      eventIndex = evtIndex;
 
-    const interfaceIndex = (() => {
-      const byName = new Map();
+      const ifaceIndex = new Map();
       INTERFACES.forEach((item) => {
         const name = (item?.name || '').trim();
         if (!name) return;
-        const list = byName.get(name) || [];
+        const list = ifaceIndex.get(name) || [];
         list.push(item);
-        byName.set(name, list);
+        ifaceIndex.set(name, list);
       });
-      return byName;
-    })();
+      interfaceIndex = ifaceIndex;
+    };
 
     let varTooltipEl = null;
     let fnTooltipEl = null;
     let functionSourceIndex = new Map();
     let nodeSourceIndex = new Map();
     const sourceIndexCache = new Map();
+
+    const resolveDefaultContract = () => {
+      const selectable = getSelectableContracts();
+      if (DEFAULT_CONTRACT && getContractEntryCount(DEFAULT_CONTRACT) > 0) return DEFAULT_CONTRACT;
+      if (selectable.length) return selectable[0];
+      const keys = Object.keys(CONTRACT_VIEWS || {});
+      return keys[0] || '';
+    };
+
+    const setActiveContract = (name, { initial = false } = {}) => {
+      if (!name || !CONTRACT_VIEWS || !CONTRACT_VIEWS[name]) return;
+      const selectable = getSelectableContracts();
+      if (selectable.length && !selectable.includes(name)) {
+        name = selectable[0];
+      }
+      activeContract = name;
+      const view = CONTRACT_VIEWS[name] || {};
+      ENTRY_POINTS_DATA = Array.isArray(view.entries) ? view.entries : [];
+      STORAGE_VARIABLES = Array.isArray(view.storage_variables) ? view.storage_variables : [];
+      TYPE_ALIASES = Array.isArray(view.type_aliases) ? view.type_aliases : [];
+      LIBRARIES = Array.isArray(view.libraries) ? view.libraries : [];
+      EVENTS = Array.isArray(view.events) ? view.events : [];
+      INTERFACES = Array.isArray(view.interfaces) ? view.interfaces : [];
+      STORAGE_WRITERS_INDEX = view.storage_writers_index || {};
+      rebuildContractIndexes();
+
+      const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
+      functionList = hydrated.functions;
+      callGraphs = hydrated.callGraphs;
+      stateReadsByFunction = hydrated.stateReads;
+      stateWritesByFunction = hydrated.stateWrites;
+      applyStepByStepDefaults(hydrated);
+      functionBySignature = functionList.reduce((acc, fn) => {
+        acc[fn.signature] = fn;
+        return acc;
+      }, {});
+      appState.activeFunctionId = functionList[0]?.id || null;
+
+      if (!initial) {
+        appState.search = { open: false, query: '', selectedIndex: 0, results: [] };
+        appState.contractSearch = { open: false, query: '', selectedIndex: 0, results: [] };
+        appState.storagePanelOpen = false;
+        appState.lastAction = 'contract-switch';
+        sourceIndexCache.clear();
+        collapseKeyCache.clear();
+        activeLineKey = null;
+        appInitialized = false;
+        closeContractPalette();
+        renderApp();
+      }
+
+      if (activeContract) {
+        document.title = `${activeContract} · ${(CONTRACT_CHAIN || 'mainnet').toUpperCase()}`;
+      }
+    };
+
+    const handleContractChange = (event) => {
+      const next = event?.target?.value;
+      if (!next || next === activeContract) return;
+      setActiveContract(next);
+    };
 
     const getVarMetaMap = (tokenEl) => {
       const block = tokenEl?.closest?.('.code-block');
@@ -3832,6 +3937,75 @@
       return searchPaletteEl;
     };
 
+    const ensureContractPalette = () => {
+      if (contractPaletteEl) return contractPaletteEl;
+      contractPaletteEl = document.createElement('div');
+      contractPaletteEl.id = 'contract-palette';
+      contractPaletteEl.className = 'fixed inset-0 z-50 hidden';
+      contractPaletteEl.innerHTML = `
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
+        <div class="absolute inset-0 pointer-events-none opacity-50">
+          <svg class="w-full h-full">
+            <defs>
+              <pattern id="contract-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#contract-grid)" />
+          </svg>
+        </div>
+        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
+          <div class="relative w-full max-w-3xl">
+            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
+                <div id="contract-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
+                <input id="contract-search-input" type="text" autocomplete="off" placeholder=""
+                  class="flex-1 bg-transparent outline-none text-cyan-200 placeholder:text-cyan-800 font-display text-sm caret-transparent font-bold tracking-wide text-glow" />
+              </div>
+              <div id="contract-search-results" class="max-h-96 overflow-y-auto custom-scrollbar divide-y divide-cyan-900/40"></div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(contractPaletteEl);
+
+      const input = contractPaletteEl.querySelector('#contract-search-input');
+      input.addEventListener('input', (e) => {
+        appState.contractSearch.query = e.target.value;
+        appState.contractSearch.selectedIndex = 0;
+        updateContractResults();
+      });
+
+      input.addEventListener('keydown', (e) => {
+        const caret = contractPaletteEl.querySelector('#contract-caret');
+        if (caret) caret.classList.remove('hidden');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          e.stopPropagation();
+          const max = appState.contractSearch.results.length;
+          if (max) appState.contractSearch.selectedIndex = (appState.contractSearch.selectedIndex + 1) % max;
+          updateContractHighlight();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          const max = appState.contractSearch.results.length;
+          if (max) appState.contractSearch.selectedIndex = (appState.contractSearch.selectedIndex - 1 + max) % max;
+          updateContractHighlight();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          activateContractSelection();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeContractPalette();
+        }
+      });
+
+      return contractPaletteEl;
+    };
+
     const ensureHotkeyHelp = () => {
       if (hotkeyHelpEl) return hotkeyHelpEl;
       hotkeyHelpEl = document.createElement('div');
@@ -3954,6 +4128,21 @@
       }
     };
 
+    const updateContractHighlight = () => {
+      const rows = contractPaletteEl?.querySelectorAll('[data-contract-index]');
+      rows?.forEach((row) => {
+        const idx = Number(row.getAttribute('data-contract-index'));
+        row.classList.toggle('bg-cyan-900/40', idx === appState.contractSearch.selectedIndex);
+        row.classList.toggle('border-l-2', idx === appState.contractSearch.selectedIndex);
+        row.classList.toggle('border-cyan-500', idx === appState.contractSearch.selectedIndex);
+      });
+      const resultsEl = contractPaletteEl?.querySelector('#contract-search-results');
+      const activeRow = rows?.[appState.contractSearch.selectedIndex];
+      if (resultsEl && activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+      }
+    };
+
     const updateSearchResults = () => {
       ensureSearchPalette();
       const resultsEl = searchPaletteEl.querySelector('#search-results');
@@ -3991,6 +4180,43 @@
       updateSearchHighlight();
     };
 
+    const updateContractResults = () => {
+      ensureContractPalette();
+      const resultsEl = contractPaletteEl.querySelector('#contract-search-results');
+      appState.contractSearch.results = filterContracts(appState.contractSearch.query);
+      const markup = appState.contractSearch.results.map((name, idx) => {
+        const escaped = escapeHtmlGlobal(name || '');
+        return `
+          <button data-contract-index="${idx}" data-contract-name="${escaped}"
+            class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-cyan-900/30 transition-colors">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
+                ${iconSvg('box', 'w-4 h-4 text-cyan-300')}
+              </div>
+              <div class="flex flex-col">
+                <span class="font-display font-bold tracking-wide text-sm text-cyan-200 text-glow">${escaped}</span>
+                <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1">
+                  ${iconSvg('layers', 'w-3 h-3 text-cyan-600')}
+                  <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px]">Top-level contract</span>
+                </div>
+              </div>
+            </div>
+          </button>
+        `;
+      }).join('') || `<div class="px-4 py-6 text-center text-slate-500 font-mono text-xs">No matches found.</div>`;
+      resultsEl.innerHTML = markup;
+      resultsEl.querySelectorAll('button[data-contract-name]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const name = btn.getAttribute('data-contract-name');
+          if (name) {
+            setActiveContract(name);
+            closeContractPalette();
+          }
+        });
+      });
+      updateContractHighlight();
+    };
+
     const openSearchPalette = () => {
       ensureSearchPalette();
       appState.search.open = true;
@@ -4007,10 +4233,34 @@
       }, 0);
     };
 
+    const openContractPalette = () => {
+      if (getSelectableContracts().length < 2) return;
+      ensureContractPalette();
+      appState.contractSearch.open = true;
+      appState.contractSearch.query = '';
+      appState.contractSearch.selectedIndex = 0;
+      updateContractResults();
+      contractPaletteEl.classList.remove('hidden');
+      setTimeout(() => {
+        const input = contractPaletteEl.querySelector('#contract-search-input');
+        if (input) {
+          input.value = '';
+          input.focus();
+        }
+      }, 0);
+    };
+    window.openContractPalette = openContractPalette;
+
     const closeSearchPalette = () => {
       if (!searchPaletteEl) return;
       appState.search.open = false;
       searchPaletteEl.classList.add('hidden');
+    };
+
+    const closeContractPalette = () => {
+      if (!contractPaletteEl) return;
+      appState.contractSearch.open = false;
+      contractPaletteEl.classList.add('hidden');
     };
 
     const openHotkeyHelp = () => {
@@ -4041,12 +4291,34 @@
       }
     };
 
+    const activateContractSelection = () => {
+      const target = appState.contractSearch.results[appState.contractSearch.selectedIndex];
+      if (target) {
+        setActiveContract(target);
+        closeContractPalette();
+      }
+    };
+
     const renderLeftSidebar = () => {
       const leftAnimationClass = (appState.lastAction === 'toggle-audit-filter' || appState.lastAction === 'audit-mark')
         ? ''
         : (appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight');
       const chainLabel = (CONTRACT_CHAIN || 'mainnet').toUpperCase();
       const addressLabel = CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
+      const contractSelector = (getSelectableContracts().length > 1)
+        ? `
+                            <div class="border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
+                                <button type="button" onclick="openContractPalette()" class="px-4 py-3 w-full flex items-center gap-3 text-left group">
+                                    <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('box', 'w-4 h-4 text-slate-400')}</div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${escapeHtmlGlobal(activeContract || '')}</div>
+                                        <div class="text-[9px] text-cyan-700 font-mono uppercase">Top-level contract</div>
+                                    </div>
+                                    <div class="text-[10px] tracking-widest text-slate-400">▼</div>
+                                </button>
+                            </div>
+                          `
+        : '';
       const filteredFunctions = appState.showAudited
         ? functionList
         : functionList.filter((fn) => !auditedFlowHashes.has(fn.flowHash || fn.id));
@@ -4054,9 +4326,10 @@
                 <aside id="sidebar-left" class="${appState.leftCollapsed ? 'hidden' : 'w-80 shrink-0'} h-full flex flex-col ${leftAnimationClass}">
                     ${neonCardMarkup(chainLabel, addressLabel, `
                         <div class="absolute inset-0 flex flex-col">
+                            ${contractSelector}
                             <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
                                 <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('mouse-pointer-click', 'w-4 h-4 text-slate-400')}</div>
-                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">Entry Points</span><span class="text-[9px] text-cyan-700 font-mono">${functionList.length} FUNCTIONS LOADED${appState.showAudited ? '' : ` · ${functionList.length - filteredFunctions.length} HIDDEN`}</span></div>
+                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${functionList.length} ENTRY POINTS ${appState.showAudited ? '' : ` · ${functionList.length - filteredFunctions.length} HIDDEN`}</span><span class="text-[9px] text-cyan-700 font-mono uppercase line-clamp-1">REPLACE_THIS_WITH_SOLIDITY_VERSION</span></div>
                             </div>
                             <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                                 ${filteredFunctions.map((fn) => `
@@ -4088,7 +4361,7 @@
                             </div>
                             <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
                                   <div class="flex space-x-1"><div class="w-1.5 h-1.5 bg-cyan-400 rounded-sm animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></div><div class="w-1.5 h-1.5 bg-cyan-900/50 rounded-sm"></div><div class="w-1.5 h-1.5 bg-cyan-900/30 rounded-sm"></div></div>
-                                 <span id="copy-feedback" data-copy-label="may the bugs be with you" class="text-[8px] font-mono text-cyan-800 uppercase">may the bugs be with you</span>
+                                 <span id="copy-feedback" data-copy-label="May the bugs be with you <3" class="text-[8px] font-mono text-cyan-800 uppercase">May the bugs be with you <3</span>
                             </div>
                         </div>
                     `, 'h-full', true)}
@@ -4378,23 +4651,15 @@
       loadCollapsedNodes();
       loadHideCollapsed();
       await loadHotkeyConfig();
-      const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
-      functionList = hydrated.functions;
-      callGraphs = hydrated.callGraphs;
-      stateReadsByFunction = hydrated.stateReads;
-      stateWritesByFunction = hydrated.stateWrites;
-      applyStepByStepDefaults(hydrated);
-      functionBySignature = functionList.reduce((acc, fn) => {
-        acc[fn.signature] = fn;
-        return acc;
-      }, {});
-      appState.activeFunctionId = functionList[0]?.id || null;
+      const initialContract = resolveDefaultContract();
+      setActiveContract(initialContract, { initial: true });
 
       ensureSearchPalette();
       document.addEventListener('keydown', (event) => {
         const target = event.target;
         const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-        const isPaletteInput = searchPaletteEl && searchPaletteEl.contains(target);
+        const isPaletteInput = (searchPaletteEl && searchPaletteEl.contains(target))
+          || (contractPaletteEl && contractPaletteEl.contains(target));
         if (event.metaKey || event.ctrlKey || event.altKey) return;
 
         // When palette is open, only palette controls are active
@@ -4415,6 +4680,26 @@
             const max = appState.search.results.length;
             if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
             updateSearchHighlight();
+          }
+          return;
+        }
+        if (appState.contractSearch.open) {
+          if (matchesAction(event, 'searchClose')) {
+            event.preventDefault();
+            closeContractPalette();
+          } else if (matchesAction(event, 'searchSelect')) {
+            event.preventDefault();
+            activateContractSelection();
+          } else if (matchesAction(event, 'searchDown')) {
+            event.preventDefault();
+            const max = appState.contractSearch.results.length;
+            if (max) appState.contractSearch.selectedIndex = (appState.contractSearch.selectedIndex + 1) % max;
+            updateContractHighlight();
+          } else if (matchesAction(event, 'searchUp')) {
+            event.preventDefault();
+            const max = appState.contractSearch.results.length;
+            if (max) appState.contractSearch.selectedIndex = (appState.contractSearch.selectedIndex - 1 + max) % max;
+            updateContractHighlight();
           }
           return;
         }
