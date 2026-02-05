@@ -171,6 +171,78 @@
       font-style: italic;
     }
 
+    .user-comment-line {
+      background: rgba(20, 14, 4, 0.45);
+      --comment-color: #fbbf24;
+      border-left: 1px solid color-mix(in srgb, var(--comment-color) 60%, transparent);
+    }
+
+    .user-comment-line .comment-text {
+      color: var(--comment-color);
+      text-shadow: 0 0 6px color-mix(in srgb, var(--comment-color) 25%, transparent);
+    }
+
+
+    .comment-swatches {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .comment-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+      cursor: pointer;
+    }
+
+    .comment-swatch.is-active {
+      outline: 1px solid #fff3;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+    }
+
+    .comment-editor {
+      position: fixed;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      border: 1px solid color-mix(in srgb, var(--comment-preview-color, #fbbf24) 55%, transparent);
+      border-radius: 6px;
+      background: rgba(12, 10, 4, 0.92);
+      box-shadow:
+        0 0 20px color-mix(in srgb, var(--comment-preview-color, #fbbf24) 25%, transparent),
+        0 16px 40px rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(6px);
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--comment-preview-color, #fbbf24);
+    }
+
+    .comment-editor.is-visible {
+      display: inline-flex;
+    }
+
+    .comment-editor input {
+      width: 320px;
+      max-width: min(70vw, 360px);
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--comment-preview-color, #fbbf24);
+      font-size: 11px;
+    }
+
+    .comment-editor .hint {
+      font-size: 9px;
+      color: color-mix(in srgb, var(--comment-preview-color, #fbbf24) 60%, transparent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
     .token-string {
       color: #6ee7b7;
     }
@@ -1145,6 +1217,20 @@
     const AUDIT_FLOW_STORAGE_KEY = 'auditedEntryPointFlows';
     const REVIEW_FLOW_STORAGE_KEY = 'reviewFlaggedEntryPointFlows';
     const DIMMED_LINES_STORAGE_KEY = 'dimmedEntryPointLines';
+    const LINE_COMMENT_STORAGE_KEY = 'inlineLineComments';
+    const COMMENT_COLORS = [
+      '#fbbf24',
+      '#f472b6',
+      '#22d3ee',
+      '#60a5fa',
+      '#34d399',
+      '#a78bfa',
+      '#fb7185',
+      '#f59e0b',
+      '#94a3b8',
+      '#38bdf8'
+    ];
+    const DEFAULT_COMMENT_COLOR = COMMENT_COLORS[0];
     const getAuditStorageKey = () => {
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${AUDIT_STORAGE_KEY}:${address}`;
@@ -1154,6 +1240,10 @@
     const getDimmedLinesStorageKey = () => {
       const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
       return `${DIMMED_LINES_STORAGE_KEY}:${address}`;
+    };
+    const getLineCommentStorageKey = () => {
+      const address = (CONTRACT_ADDRESS || 'unknown').toLowerCase();
+      return `${LINE_COMMENT_STORAGE_KEY}:${address}`;
     };
     const COLLAPSED_STORAGE_KEY = 'collapsedFlowNodes';
     const HIDE_COLLAPSED_STORAGE_KEY = 'hideCollapsedFlows';
@@ -1194,7 +1284,12 @@
     let auditedFlowOrder = [];
     let reviewFlowHashes = new Set();
     let dimmedLineKeys = new Set();
+    let lineComments = new Map();
     let activeLineKey = null;
+    let commentEditorEl = null;
+    let commentEditorInput = null;
+    let commentEditorActiveKey = null;
+    let commentEditorActiveColor = DEFAULT_COMMENT_COLOR;
     const collapseKeyCache = new Map();
     const loadStepByStepPreference = () => {
       try {
@@ -1421,6 +1516,7 @@
 
     const toggleAudit = (id, { persist = true } = {}) => {
       if (!id) return;
+      const activeId = appState.activeFunctionId;
       if (auditedFlowHashes.has(id)) {
         auditedFlowHashes.delete(id);
         const idx = auditedFlowOrder.indexOf(id);
@@ -1444,8 +1540,11 @@
         const activeHidden = !appState.showAudited && activeIsAudited;
         appState.lastAction = 'audit-mark';
         if (activeHidden) {
-          const visibleList = functionList.filter((fn) => !auditedFlowHashes.has(fn.flowHash || fn.id));
-          appState.activeFunctionId = visibleList[0]?.id || null;
+          const activeIndex = functionList.findIndex((fn) => fn.id === activeId);
+          const nextVisible = findNextVisibleFunction(activeIndex, 1);
+          if (nextVisible) {
+            appState.activeFunctionId = nextVisible.id;
+          }
           refreshMainFlow();
           if (!appState.storagePanelOpen && !appState.rightCollapsed) {
             refreshRightSidebar();
@@ -1453,17 +1552,10 @@
           if (appState.storagePanelOpen) {
             updateStorageWriters();
           }
-          updateSidebarSelection();
-          scrollActiveFunctionIntoView();
-        } else {
-          const toggleEl = document.querySelector(`[data-audit-id="${id}"]`);
-          if (toggleEl) {
-            const isAudited = auditedFlowHashes.has(id);
-            toggleEl.classList.toggle('is-active', isAudited);
-            toggleEl.setAttribute('aria-checked', isAudited ? 'true' : 'false');
-            toggleEl.setAttribute('aria-hidden', isAudited ? 'false' : 'true');
-          }
         }
+        refreshLeftSidebar();
+        updateSidebarSelection();
+        scrollActiveFunctionIntoView();
       } else {
         updateAuditMarksUI();
       }
@@ -1557,6 +1649,190 @@
       } catch (_) {
         dimmedLineKeys = new Set();
       }
+    };
+
+    const normalizeCommentRecord = (value) => {
+      if (!value) return null;
+      if (typeof value === 'string') {
+        return { text: value, color: DEFAULT_COMMENT_COLOR };
+      }
+      if (typeof value === 'object') {
+        const text = (value.text || '').toString();
+        const color = value.color && COMMENT_COLORS.includes(value.color) ? value.color : DEFAULT_COMMENT_COLOR;
+        return text ? { text, color } : null;
+      }
+      return null;
+    };
+
+    const loadLineComments = () => {
+      try {
+        const raw = localStorage.getItem(getLineCommentStorageKey());
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const entries = Object.entries(parsed)
+            .map(([key, value]) => [key, normalizeCommentRecord(value)])
+            .filter(([key, record]) => key && record);
+          lineComments = new Map(entries);
+          return;
+        }
+      } catch (_) {
+        // Ignore storage failures silently.
+      }
+      lineComments = new Map();
+    };
+
+    const persistLineComments = () => {
+      try {
+        localStorage.setItem(getLineCommentStorageKey(), JSON.stringify(Object.fromEntries(lineComments)));
+      } catch (_) {
+        // Storage might be unavailable; ignore silently.
+      }
+    };
+
+    const getLineComment = (lineKey) => {
+      if (!lineKey) return null;
+      return lineComments.get(lineKey) || null;
+    };
+
+    const setLineComment = (lineKey, text, color = DEFAULT_COMMENT_COLOR) => {
+      if (!lineKey) return;
+      const nextText = (text || '').trim();
+      const nextColor = COMMENT_COLORS.includes(color) ? color : DEFAULT_COMMENT_COLOR;
+      if (!nextText) {
+        lineComments.delete(lineKey);
+      } else {
+        lineComments.set(lineKey, { text: nextText, color: nextColor });
+      }
+      persistLineComments();
+    };
+
+    const updateLineCommentUI = (lineKey) => {
+      if (!lineKey) return;
+      const comment = getLineComment(lineKey);
+      const safeKey = lineKey.replace(/"/g, '\\"');
+      document.querySelectorAll(`[data-line-key="${safeKey}"]`).forEach((lineEl) => {
+        const existing = lineEl.previousElementSibling;
+        if (existing && existing.getAttribute('data-comment-for') === lineKey) {
+          existing.remove();
+        }
+        if (!comment || !comment.text) return;
+        const codeText = lineEl.querySelector('.code-line-content')?.textContent || '';
+        const indentMatch = codeText.match(/^\s*/);
+        const indent = indentMatch ? indentMatch[0] : '';
+        const commentLine = document.createElement('div');
+        commentLine.className = 'code-line user-comment-line flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line';
+        commentLine.setAttribute('data-comment-for', lineKey);
+        commentLine.style.setProperty('--comment-color', comment.color || DEFAULT_COMMENT_COLOR);
+        commentLine.innerHTML = `
+          <span class="select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:var(--code-line-height, 14px);height:var(--code-line-height, 14px);"></span>
+          <span class="comment-text whitespace-pre font-mono" style="line-height:var(--code-line-height, 14px);height:var(--code-line-height, 14px);">${escapeHtmlGlobal(indent)}// ${escapeHtmlGlobal(comment.text)}</span>
+          <div class="absolute inset-0 ml-8 border-l-8 pointer-events-none" style="border-left-color: color-mix(in srgb, var(--comment-color) 45%, transparent);"></div>
+        `;
+        lineEl.parentElement?.insertBefore(commentLine, lineEl);
+      });
+    };
+
+    const promptLineComment = (lineKey) => {
+      if (!lineKey) return;
+      const lineEl = document.querySelector(`[data-line-key="${lineKey.replace(/"/g, '\\"')}"]`);
+      if (!lineEl) return;
+      openLineCommentEditor(lineEl);
+    };
+
+    const ensureCommentEditor = () => {
+      if (commentEditorEl) return commentEditorEl;
+      commentEditorEl = document.createElement('div');
+      commentEditorEl.className = 'comment-editor';
+      commentEditorEl.innerHTML = `
+        <span class="text-xs">//</span>
+        <input type="text" spellcheck="false" placeholder="Add inline note..." />
+        <div class="comment-swatches"></div>
+        <span class="hint">enter save · esc cancel</span>
+      `;
+      commentEditorInput = commentEditorEl.querySelector('input');
+      const swatchEl = commentEditorEl.querySelector('.comment-swatches');
+      COMMENT_COLORS.forEach((color) => {
+        const swatch = document.createElement('button');
+        swatch.type = 'button';
+        swatch.className = 'comment-swatch';
+        swatch.setAttribute('data-comment-color', color);
+        swatch.style.background = color;
+        swatch.addEventListener('click', (event) => {
+          event.preventDefault();
+          setActiveCommentColor(color);
+          commentEditorInput?.focus();
+        });
+        swatchEl.appendChild(swatch);
+      });
+      commentEditorInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitLineComment();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closeLineCommentEditor({ commit: false });
+        }
+        event.stopPropagation();
+      });
+      commentEditorInput.addEventListener('blur', (event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget && commentEditorEl?.contains(nextTarget)) return;
+        closeLineCommentEditor({ commit: true });
+      });
+      document.body.appendChild(commentEditorEl);
+      setActiveCommentColor(commentEditorActiveColor);
+      return commentEditorEl;
+    };
+
+    const setActiveCommentColor = (color) => {
+      if (!COMMENT_COLORS.includes(color)) return;
+      commentEditorActiveColor = color;
+      commentEditorEl?.style.setProperty('--comment-preview-color', color);
+      commentEditorEl?.querySelectorAll('.comment-swatch').forEach((el) => {
+        el.classList.toggle('is-active', el.getAttribute('data-comment-color') === color);
+      });
+    };
+
+    const positionCommentEditor = (lineEl) => {
+      const editor = ensureCommentEditor();
+      const contentEl = lineEl.querySelector('.code-line-content') || lineEl;
+      const rect = contentEl.getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const width = editorRect.width || 360;
+      const left = Math.min(rect.left + 12, window.innerWidth - width - 16);
+      editor.style.top = `${Math.max(8, rect.top - 2)}px`;
+      editor.style.left = `${Math.max(8, left)}px`;
+    };
+
+    const openLineCommentEditor = (lineEl) => {
+      const lineKey = lineEl.getAttribute('data-line-key');
+      if (!lineKey) return;
+      const editor = ensureCommentEditor();
+      const record = getLineComment(lineKey);
+      commentEditorActiveKey = lineKey;
+      commentEditorInput.value = record?.text || '';
+      setActiveCommentColor(record?.color || DEFAULT_COMMENT_COLOR);
+      positionCommentEditor(lineEl);
+      editor.classList.add('is-visible');
+      commentEditorInput.focus();
+      commentEditorInput.select();
+    };
+
+    const commitLineComment = () => {
+      if (!commentEditorActiveKey) return;
+      setLineComment(commentEditorActiveKey, commentEditorInput.value, commentEditorActiveColor);
+      updateLineCommentUI(commentEditorActiveKey);
+      closeLineCommentEditor({ commit: false });
+    };
+
+    const closeLineCommentEditor = ({ commit = false } = {}) => {
+      if (!commentEditorEl) return;
+      if (commit && commentEditorActiveKey) {
+        setLineComment(commentEditorActiveKey, commentEditorInput.value, commentEditorActiveColor);
+        updateLineCommentUI(commentEditorActiveKey);
+      }
+      commentEditorEl.classList.remove('is-visible');
+      commentEditorActiveKey = null;
     };
 
     const persistDimmedLines = () => {
@@ -2527,10 +2803,26 @@
       const rowsHtml = lines.map((line, i) => {
         const lineKey = `${originNodeId || 'node'}:${i + 1}`;
         const dimmedClass = dimmedLineKeys.has(lineKey) ? 'line-dimmed' : '';
+        const indentMatch = line.match(/^\s*/);
+        const indent = indentMatch ? indentMatch[0] : '';
+        const commentRow = (() => {
+          const comment = getLineComment(lineKey);
+          if (!comment || !comment.text) return '';
+          const escaped = escapeHtml(comment.text);
+          const color = comment.color || DEFAULT_COMMENT_COLOR;
+          return `
+                <div class="code-line user-comment-line flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-comment-for="${lineKey}" style="--comment-color:${color};">
+                  <span class="select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};"></span>
+                  <span class="comment-text whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${escapeHtml(indent)}// ${escaped}</span>
+                  <div class="absolute inset-0 ml-8 border-l-8 pointer-events-none" style="border-left-color: color-mix(in srgb, var(--comment-color) 45%, transparent);"></div>
+                </div>
+          `;
+        })();
         return `
+                ${commentRow}
                 <div class="code-line ${dimmedClass} flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-line-key="${lineKey}">
                   <span class="text-slate-600 select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};">${i + 1}</span>
-                  <span class="text-slate-300 whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${highlightedLines[i] || ''}</span>
+                  <span class="text-slate-300 whitespace-pre font-mono code-line-content" style="line-height:${lineHeight};height:${lineHeight};">${highlightedLines[i] || ''}</span>
                   <div class="absolute inset-0 ml-8 border-l-8 border-transparent group-hover/line:border-cyan-500 pointer-events-none"></div>
                 </div>
             `;
@@ -3015,6 +3307,23 @@
       }
     };
 
+    const findNextVisibleFunction = (startIndex, direction = 1) => {
+      if (!functionList.length) return null;
+      const total = functionList.length;
+      if (!Number.isFinite(startIndex) || startIndex < 0) {
+        startIndex = direction > 0 ? -1 : total;
+      }
+      for (let i = 1; i <= total; i++) {
+        const idx = (startIndex + direction * i + total) % total;
+        const candidate = functionList[idx];
+        if (!candidate) continue;
+        if (!auditedFlowHashes.has(candidate.flowHash || candidate.id)) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
     let lastActiveFunctionId = null;
     const applySidebarSelection = (btn, isActive) => {
       if (!btn) return;
@@ -3134,6 +3443,11 @@
     });
 
     document.addEventListener('mouseover', (event) => {
+      const commentEl = event.target.closest('[data-comment-for]');
+      if (commentEl) {
+        activeLineKey = commentEl.getAttribute('data-comment-for');
+        return;
+      }
       const lineEl = event.target.closest('[data-line-key]');
       if (lineEl) {
         activeLineKey = lineEl.getAttribute('data-line-key');
@@ -3868,6 +4182,15 @@
       updateStorageWriters();
     };
 
+    const attachOverlayOutsideClose = (overlayEl, panelSelector, closeFn) => {
+      if (!overlayEl || overlayEl._outsideCloseAttached) return;
+      overlayEl._outsideCloseAttached = true;
+      overlayEl.addEventListener('mousedown', (event) => {
+        if (event.target.closest(panelSelector)) return;
+        closeFn();
+      });
+    };
+
     const ensureSearchPalette = () => {
       if (searchPaletteEl) return searchPaletteEl;
       searchPaletteEl = document.createElement('div');
@@ -3888,7 +4211,7 @@
         <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
           <div class="relative w-full max-w-3xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden search-panel">
               <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
                 <div id="search-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
                 <input id="search-input" type="text" autocomplete="off" placeholder=""
@@ -3900,6 +4223,7 @@
         </div>
       `;
       document.body.appendChild(searchPaletteEl);
+      attachOverlayOutsideClose(searchPaletteEl, '.search-panel', closeSearchPalette);
 
       const input = searchPaletteEl.querySelector('#search-input');
       input.addEventListener('input', (e) => {
@@ -3957,7 +4281,7 @@
         <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
           <div class="relative w-full max-w-3xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden">
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden contract-panel">
               <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
                 <div id="contract-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
                 <input id="contract-search-input" type="text" autocomplete="off" placeholder=""
@@ -3969,6 +4293,7 @@
         </div>
       `;
       document.body.appendChild(contractPaletteEl);
+      attachOverlayOutsideClose(contractPaletteEl, '.contract-panel', closeContractPalette);
 
       const input = contractPaletteEl.querySelector('#contract-search-input');
       input.addEventListener('input', (e) => {
@@ -4026,7 +4351,7 @@
         <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8">
           <div class="relative w-full max-w-2xl">
             <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden max-h-[80vh] overflow-y-auto custom-scrollbar">
+            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden max-h-[80vh] overflow-y-auto custom-scrollbar hotkey-panel">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${(Array.isArray(hotkeyConfig?.help) ? hotkeyConfig.help : []).map((entry) => {
         const label = entry?.label || '';
@@ -4072,6 +4397,7 @@
         </div>
       `;
       document.body.appendChild(hotkeyHelpEl);
+      attachOverlayOutsideClose(hotkeyHelpEl, '.hotkey-panel', closeHotkeyHelp);
       const toggleBtn = hotkeyHelpEl.querySelector('#hotkey-toggle-hide');
       if (toggleBtn) {
         toggleBtn.addEventListener('click', (event) => {
@@ -4648,6 +4974,7 @@
       loadReviewMarks();
       loadAuditMarks();
       loadDimmedLines();
+      loadLineComments();
       loadCollapsedNodes();
       loadHideCollapsed();
       await loadHotkeyConfig();
@@ -4658,9 +4985,11 @@
       document.addEventListener('keydown', (event) => {
         const target = event.target;
         const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+        const isCommentEditing = commentEditorEl && commentEditorEl.classList.contains('is-visible');
         const isPaletteInput = (searchPaletteEl && searchPaletteEl.contains(target))
           || (contractPaletteEl && contractPaletteEl.contains(target));
         if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (isCommentEditing || (commentEditorEl && commentEditorEl.contains(target))) return;
 
         // When palette is open, only palette controls are active
         if (appState.search.open) {
@@ -4730,7 +5059,7 @@
           }
         }
 
-        if (matchesAction(event, 'goHome')) {
+        if (matchesAction(event, 'goHome') && !isTyping) {
           event.preventDefault();
           startOutroRedirect('/index.html');
           return;
@@ -4787,6 +5116,11 @@
           event.preventDefault();
           const reviewKey = getActiveReviewKey();
           if (reviewKey) toggleReview(reviewKey);
+        } else if (matchesAction(event, 'editLineComment')) {
+          if (activeLineKey) {
+            event.preventDefault();
+            promptLineComment(activeLineKey);
+          }
         } else if (matchesAction(event, 'toggleDimLine')) {
           if (activeLineKey) {
             event.preventDefault();
