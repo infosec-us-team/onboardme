@@ -47,6 +47,47 @@ def _report_progress(callback: ProgressCallback | None, message: str, **meta: An
         pass
 
 
+def _collect_entry_point_inputs(entry_point: Function) -> List[Dict[str, str]]:
+    """Extract parameter names/types for UI rendering (read-only call form)."""
+    inputs: List[Dict[str, str]] = []
+    for param in (getattr(entry_point, "parameters", None) or []):
+        name = (getattr(param, "name", "") or "").strip()
+        typ = str(getattr(param, "type", "") or "").strip()
+        inputs.append({"name": name, "type": typ})
+    return inputs
+
+
+def _collect_entry_point_outputs(entry_point: Function) -> List[Dict[str, str]]:
+    """Extract return names/types for UI decoding (read-only call results)."""
+    outputs: List[Dict[str, str]] = []
+
+    # Slither typically exposes `returns` (list of variables) for function return values.
+    returns = getattr(entry_point, "returns", None)
+    if isinstance(returns, list):
+        for ret in returns:
+            name = (getattr(ret, "name", "") or "").strip()
+            typ = str(getattr(ret, "type", "") or "").strip()
+            if typ:
+                outputs.append({"name": name, "type": typ})
+        return outputs
+
+    # Fallbacks: different Slither versions may use `return_type`.
+    return_type = getattr(entry_point, "return_type", None)
+    if return_type is None:
+        return outputs
+    if isinstance(return_type, list):
+        for idx, typ in enumerate(return_type):
+            t = str(typ or "").strip()
+            if t:
+                outputs.append({"name": f"ret{idx}", "type": t})
+        return outputs
+
+    t = str(return_type or "").strip()
+    if t:
+        outputs.append({"name": "ret0", "type": t})
+    return outputs
+
+
 def _var_display(var: Any) -> str:
     """Readable label for variables in dependency output."""
     if isinstance(var, SolidityVariableComposed):
@@ -458,17 +499,40 @@ def _walk_callable(
 
 def _entry_points_for(contract: Contract) -> List[Function]:
     """Return state-modifying public/external entry points for a contract."""
-    candidates = [
-        function
-        for function in contract.functions
-        if function.visibility in ["public", "external"]
-        and isinstance(function, FunctionContract)
-        and not function.is_constructor
-        and not function.view
-        and not function.pure
-        and not function.is_shadowed
-        and not (hasattr(function, "is_implemented") and not function.is_implemented)
-    ]
+    return _entry_points_by_predicate(
+        contract,
+        lambda fn: (not fn.view) and (not fn.pure),
+    )
+
+
+def _read_only_entry_points_for(contract: Contract) -> List[Function]:
+    """Return view/pure public/external entry points for a contract."""
+    return _entry_points_by_predicate(
+        contract,
+        lambda fn: bool(fn.view or fn.pure),
+    )
+
+
+def _entry_points_by_predicate(
+    contract: Contract,
+    is_selected: Callable[[FunctionContract], bool],
+) -> List[Function]:
+    """Return public/external FunctionContract callables matching is_selected."""
+    candidates: List[Function] = []
+    for function in contract.functions:
+        if function.visibility not in ["public", "external"]:
+            continue
+        if not isinstance(function, FunctionContract):
+            continue
+        if function.is_constructor:
+            continue
+        if function.is_shadowed:
+            continue
+        if hasattr(function, "is_implemented") and not function.is_implemented:
+            continue
+        if not is_selected(function):
+            continue
+        candidates.append(function)
     return sorted(candidates, key=_display_name)
 
 
@@ -507,6 +571,37 @@ def build_entry_point_flows(
     progress_cb: ProgressCallback | None = None,
 ) -> List[Dict[str, Any]]:
     """Assemble structured data for every entry point and its execution flow."""
+    return _build_entry_point_flows(
+        slither,
+        root_contracts=root_contracts,
+        entry_points_fn=_entry_points_for,
+        label="entry point",
+        progress_cb=progress_cb,
+    )
+
+
+def build_read_only_entry_point_flows(
+    slither: Slither,
+    root_contracts: Sequence[Contract] | None = None,
+    progress_cb: ProgressCallback | None = None,
+) -> List[Dict[str, Any]]:
+    """Assemble structured data for view/pure entry points and their execution flows."""
+    return _build_entry_point_flows(
+        slither,
+        root_contracts=root_contracts,
+        entry_points_fn=_read_only_entry_points_for,
+        label="read-only entry point",
+        progress_cb=progress_cb,
+    )
+
+
+def _build_entry_point_flows(
+    slither: Slither,
+    root_contracts: Sequence[Contract] | None,
+    entry_points_fn: Callable[[Contract], List[Function]],
+    label: str,
+    progress_cb: ProgressCallback | None,
+) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     reported_unimplemented: Set[str] = set()
     all_contracts = list(getattr(slither, "contracts", []) or [])
@@ -517,7 +612,7 @@ def build_entry_point_flows(
         "Collecting audited contracts",
         count=len(audited_contracts),
     )
-    total_entries = sum(len(_entry_points_for(contract)) for contract in audited_contracts)
+    total_entries = sum(len(entry_points_fn(contract)) for contract in audited_contracts)
     entry_index = 0
 
     for contract_index, contract in enumerate(audited_contracts, start=1):
@@ -528,11 +623,11 @@ def build_entry_point_flows(
             index=contract_index,
             total=len(audited_contracts),
         )
-        for entry_point in _entry_points_for(contract):
+        for entry_point in entry_points_fn(contract):
             entry_index += 1
             _report_progress(
                 progress_cb,
-                "Analyzing entry point",
+                f"Analyzing {label}",
                 entry_point=_display_name(entry_point),
                 contract=contract.name,
                 index=entry_index,
@@ -601,7 +696,7 @@ def build_entry_point_flows(
 
             _report_progress(
                 progress_cb,
-                "Entry point complete",
+                f"{label.capitalize()} complete",
                 entry_point=_display_name(entry_point),
                 contract=contract.name,
                 index=entry_index,
@@ -612,6 +707,8 @@ def build_entry_point_flows(
                 {
                     "contract": contract.name,
                     "entry_point": _display_name(entry_point),
+                    "inputs": _collect_entry_point_inputs(entry_point),
+                    "outputs": _collect_entry_point_outputs(entry_point),
                     "reads_msg_sender": reads_msg_sender,
                     "state_variables_read": state_vars_read,
                     "state_variables_written": state_vars_written,

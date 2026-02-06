@@ -8,7 +8,9 @@ import json
 import os
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.request import urlopen, Request
+import re
 
 import main as flow_gen
 _DOTENV_LOADED = False
@@ -45,6 +47,18 @@ def run(directory: Path, host: str, port: int) -> None:
     directory = directory.resolve()
 
     class SrcHandler(SimpleHTTPRequestHandler):
+        _ETH_CALL_MAX_BODY_BYTES = 64 * 1024
+        _RPC_REQUIRED_CHAINIDS = {
+            "56",  # BNB Smart Chain Mainnet
+            "97",  # BNB Smart Chain Testnet
+            "8453",  # Base Mainnet
+            "84532",  # Base Sepolia
+            "10",  # OP Mainnet
+            "11155420",  # OP Sepolia
+            "43114",  # Avalanche C-Chain
+            "43113",  # Avalanche Fuji
+        }
+
         # Serve static files from src/ by default.
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(directory), **kwargs)
@@ -77,7 +91,174 @@ def run(directory: Path, host: str, port: int) -> None:
                         merged[k] = [v] if not isinstance(v, list) else v
                 self._handle_generate(parsed, merged)
                 return
+            if parsed.path == "/eth_call":
+                length = int(self.headers.get("Content-Length", 0))
+                if length > self._ETH_CALL_MAX_BODY_BYTES:
+                    self._json_response(413, {"error": "request body too large"})
+                    return
+                body = self.rfile.read(length).decode("utf-8") if length else ""
+                params = parse_qs(body) if "=" in body else {}
+                try:
+                    json_body = json.loads(body) if body else {}
+                except json.JSONDecodeError:
+                    json_body = {}
+                merged: dict[str, list[str]] = {}
+                if isinstance(params, dict):
+                    merged.update({k: [str(x) for x in v] for k, v in params.items()})
+                if isinstance(json_body, dict):
+                    for k, v in json_body.items():
+                        if isinstance(v, list):
+                            merged[k] = [str(x) for x in v]
+                        else:
+                            merged[k] = [str(v)]
+                self._handle_eth_call(merged)
+                return
             return super().do_POST()
+
+        def _handle_eth_call(self, params: dict[str, list[str]]):
+            def _first(key: str) -> str:
+                vals = params.get(key) or []
+                return (vals[0] if vals else "").strip()
+
+            chainid = _first("chainid") or _first("chain_id") or _first("chain")
+            to = _first("to") or _first("address")
+            # Clients/providers vary on field name: "data" vs "input". Accept either.
+            data = _first("data") or _first("input")
+            tag = _first("tag") or "latest"
+
+            # Strict input validation: reject anything outside expected character sets.
+            # This endpoint never executes shell commands, but we still validate to prevent
+            # abuse (huge payloads, weird encodings) and keep the surface area tight.
+            if not chainid or not re.fullmatch(r"[0-9]{1,12}", chainid):
+                self._json_response(400, {"error": "chainid is required and must be numeric"})
+                return
+            if not re.fullmatch(r"0x[0-9a-fA-F]{40}", to or ""):
+                self._json_response(400, {"error": "to must be a 0x-prefixed 20-byte hex address"})
+                return
+            if not re.fullmatch(r"0x[0-9a-fA-F]*", data or ""):
+                self._json_response(400, {"error": "data/input must be 0x-prefixed hex calldata"})
+                return
+            # EVM calldata is bytes; require even-length hex after 0x.
+            if (len(data) - 2) % 2 != 0:
+                self._json_response(400, {"error": "data hex length must be even"})
+                return
+            # Guard against very large query strings / upstream limits.
+            if len(data) > 2 + 32_768:  # 16KiB of calldata as hex chars
+                self._json_response(400, {"error": "data too large"})
+                return
+
+            # Only allow standard JSON-RPC tags or a specific block number hex quantity.
+            tag = (tag or "").strip().lower()
+            if tag in {"latest", "earliest", "pending"}:
+                pass
+            elif re.fullmatch(r"0x[0-9a-f]+", tag or ""):
+                pass
+            else:
+                self._json_response(400, {"error": "invalid tag"})
+                return
+
+            # For some chains, the free Etherscan API does not support eth_call via the
+            # v2 proxy endpoint. In those cases we require a per-chain RPC URL.
+            if chainid in self._RPC_REQUIRED_CHAINIDS:
+                env_key = f"RPC_URL_{chainid}"
+                rpc_url = os.environ.get(env_key, "").strip()
+                if not rpc_url:
+                    self._json_response(
+                        400,
+                        {
+                            "error": f"{env_key} not set",
+                            "detail": f"Chain id {chainid} requires a direct RPC URL for eth_call.",
+                        },
+                    )
+                    return
+                if not re.fullmatch(r"https?://.+", rpc_url):
+                    self._json_response(400, {"error": f"{env_key} must start with http:// or https://"})
+                    return
+
+                body = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "eth_call",
+                    # Some RPC providers expect "input" instead of "data". Send both.
+                    "params": [{"to": to, "data": data, "input": data}, tag],
+                }
+                try:
+                    req = Request(
+                        rpc_url,
+                        data=json.dumps(body).encode("utf-8"),
+                        headers={"Accept": "application/json", "Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urlopen(req, timeout=20) as resp:
+                        raw = resp.read().decode("utf-8", errors="replace")
+                    payload = json.loads(raw) if raw else {}
+                except Exception as exc:  # noqa: BLE001 - return error detail to client
+                    self._json_response(502, {"error": "rpc request failed", "detail": str(exc)})
+                    return
+
+                if isinstance(payload, dict) and "result" in payload:
+                    self._json_response(200, {"result": payload.get("result")})
+                    return
+
+                detail = ""
+                try:
+                    if isinstance(payload, dict):
+                        if isinstance(payload.get("error"), dict):
+                            detail = str(payload["error"].get("message") or payload["error"])
+                        else:
+                            detail = str(payload.get("message") or payload.get("error") or payload)
+                    else:
+                        detail = str(payload)
+                except Exception:
+                    detail = "unknown error"
+                self._json_response(502, {"error": "rpc returned error", "detail": detail[:500]})
+                return
+
+            api_key = os.environ.get("ETHERSCAN_API_KEY", "").strip()
+            if not api_key:
+                self._json_response(400, {"error": "ETHERSCAN_API_KEY not set"})
+                return
+
+            query = urlencode(
+                {
+                    "chainid": chainid,
+                    "module": "proxy",
+                    "action": "eth_call",
+                    "to": to,
+                    "data": data,
+                    "tag": tag,
+                    "apikey": api_key,
+                }
+            )
+            url = f"https://api.etherscan.io/v2/api?{query}"
+            try:
+                req = Request(url, headers={"Accept": "application/json"})
+                with urlopen(req, timeout=20) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                payload = json.loads(raw) if raw else {}
+            except Exception as exc:  # noqa: BLE001 - return error detail to client
+                self._json_response(502, {"error": "etherscan request failed", "detail": str(exc)})
+                return
+
+            # Expected successful response: {"jsonrpc":"2.0","id":1,"result":"0x..."}
+            # Errors usually have an "error" object.
+            if isinstance(payload, dict) and "result" in payload:
+                self._json_response(200, {"result": payload.get("result")})
+                return
+
+            # Don't forward arbitrary structured payloads (keeps response surface small).
+            detail = ""
+            try:
+                if isinstance(payload, dict):
+                    if isinstance(payload.get("error"), dict):
+                        detail = str(payload["error"].get("message") or payload["error"])
+                    else:
+                        detail = str(payload.get("message") or payload.get("error") or payload)
+                else:
+                    detail = str(payload)
+            except Exception:
+                detail = "unknown error"
+            self._json_response(502, {"error": "etherscan returned error", "detail": detail[:500]})
 
         def _handle_generate(self, parsed, extra_params=None):
             params = parse_qs(parsed.query)

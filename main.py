@@ -4,6 +4,7 @@ import argparse
 import json
 import hashlib
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -18,7 +19,11 @@ from analysis.slither_env import (
     _normalize_address,
     _resolve_chain_and_address,
 )
-from analysis.flow_walk import _iter_audited_contracts, build_entry_point_flows
+from analysis.flow_walk import (
+    _iter_audited_contracts,
+    build_entry_point_flows,
+    build_read_only_entry_point_flows,
+)
 from analysis.render import render_html
 from analysis.state_vars import (
     _event_record,
@@ -128,6 +133,138 @@ def _collect_solidity_pragma_versions(slither: Slither) -> List[str]:
                 _record(getattr(pragma, "version", "") or "")
 
     return ordered
+
+
+def _strip_solidity_comments(text: str) -> str:
+    """Remove // and /* */ comments so pragma parsing doesn't match commented code."""
+    if not text:
+        return ""
+    out: List[str] = []
+    i = 0
+    n = len(text)
+    in_line = False
+    in_block = False
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if in_line:
+            if ch == "\n":
+                in_line = False
+                out.append(ch)
+            i += 1
+            continue
+        if in_block:
+            if ch == "*" and nxt == "/":
+                in_block = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            in_line = True
+            i += 2
+            continue
+        if ch == "/" and nxt == "*":
+            in_block = True
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _first_pragma_solidity_from_source(path: Path) -> str | None:
+    """Return the first `pragma solidity ...;` constraint in the given source file."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    cleaned = _strip_solidity_comments(text)
+    match = re.search(r"\bpragma\s+solidity\s+([^;]+)\s*;", cleaned)
+    if not match:
+        return None
+    value = (match.group(1) or "").strip()
+    return value or None
+
+
+def _export_dir_for_target(address: str | None, chain: str | None) -> Path | None:
+    if not address or not chain:
+        return None
+    export_root = Path("crytic-export") / "etherscan-contracts"
+    if not export_root.exists():
+        return None
+    prefix = f"{_normalize_address(address)}{chain.lower()}-"
+    candidates = sorted(
+        (
+            entry
+            for entry in export_root.iterdir()
+            if entry.is_dir() and entry.name.lower().startswith(prefix)
+        ),
+        key=lambda p: p.name.lower(),
+    )
+    return candidates[0] if candidates else None
+
+
+def _source_path_for_main_contract(
+    main_contract: Contract | None,
+    address: str | None = None,
+    chain: str | None = None,
+) -> Path | None:
+    """Resolve a best-effort .sol path for the main contract."""
+    if main_contract is None:
+        return None
+
+    # 1) Prefer Slither's source mapping if it points at a readable file.
+    try:
+        mapped = Path(main_contract.source_mapping.filename.absolute)
+    except Exception:
+        mapped = None
+    if mapped is not None and mapped.suffix.lower() == ".sol" and mapped.exists():
+        return mapped
+
+    # 2) Fall back to crytic-export source tree for on-chain targets.
+    export_dir = _export_dir_for_target(address, chain)
+    if export_dir is None:
+        return mapped if mapped is not None and mapped.suffix.lower() == ".sol" else None
+
+    name = (main_contract.name or "").strip()
+    if not name:
+        return None
+
+    # 2a) Common case: contract file matches contract name.
+    direct = sorted(export_dir.glob(f"**/{name}.sol"), key=lambda p: (len(str(p)), str(p)))
+    if direct:
+        return direct[0]
+
+    # 2b) Fallback: find any .sol file declaring the contract name.
+    decl_re = re.compile(rf"\\b(contract|interface|library)\\s+{re.escape(name)}\\b")
+    for sol_path in sorted(export_dir.rglob("*.sol"), key=lambda p: (len(str(p)), str(p))):
+        try:
+            text = sol_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        cleaned = _strip_solidity_comments(text)
+        if decl_re.search(cleaned):
+            return sol_path
+
+    return mapped if mapped is not None and mapped.suffix.lower() == ".sol" else None
+
+
+def _solidity_label_for_main_contract(
+    slither: Slither,
+    main_contract: Contract | None,
+    address: str | None = None,
+    chain: str | None = None,
+) -> str:
+    """Prefer the pragma version from the main contract's source file."""
+    path = _source_path_for_main_contract(main_contract, address=address, chain=chain)
+    if path is not None:
+        version = _first_pragma_solidity_from_source(path)
+        if version:
+            return f"pragma solidity {version}"
+
+    versions = _collect_solidity_pragma_versions(slither)
+    return _format_solidity_version_label(versions)
 
 
 def _format_solidity_version_label(versions: Sequence[str]) -> str:
@@ -424,8 +561,6 @@ def generate_html(
         stop_fetch.set()
         heartbeat_thread.join(timeout=1.0)
     _report_progress(progress_cb, "Compiler analysis completed")
-    solidity_versions = _collect_solidity_pragma_versions(slither)
-    solidity_label = _format_solidity_version_label(solidity_versions)
 
     _report_progress(progress_cb, "Resolving deployed contract")
     resolved_contracts = _resolve_root_contracts(slither, address, chain)
@@ -437,9 +572,14 @@ def generate_html(
     contract_views: Dict[str, Dict[str, Any]] = {}
     for contract in root_contracts:
         data = build_entry_point_flows(slither, [contract], progress_cb=progress_cb)
+        _report_progress(progress_cb, "Building read-only entry point flows", contract=contract.name)
+        read_only_data = build_read_only_entry_point_flows(
+            slither, [contract], progress_cb=progress_cb
+        )
         metadata = _collect_render_metadata(slither, [contract])
         contract_views[contract.name] = {
             "entries": data,
+            "read_only_entries": read_only_data,
             "extra_storage_vars": metadata["extra_storage_vars"],
             "type_aliases": metadata["type_aliases"],
             "libraries": metadata["libraries"],
@@ -454,6 +594,10 @@ def generate_html(
         if resolved_name in contract_views:
             default_contract = resolved_name
     title_contract = default_contract or f"{chain}:{address}"
+    main_contract_obj = next((c for c in root_contracts if c.name == default_contract), None)
+    solidity_label = _solidity_label_for_main_contract(
+        slither, main_contract_obj, address=address, chain=chain
+    )
     output_path = render_html(
         contract_views,
         default_contract,
@@ -496,8 +640,6 @@ def generate_from_local(
     except Exception as exc:
         raise ValueError(f"Compilation failed for {path}: {exc}") from exc
     _report_progress(progress_cb, "Compiler analysis completed")
-    solidity_versions = _collect_solidity_pragma_versions(slither)
-    solidity_label = _format_solidity_version_label(solidity_versions)
 
     root_contracts = _select_local_root_contracts(slither)
     if not root_contracts:
@@ -508,12 +650,19 @@ def generate_from_local(
     for contract in root_contracts:
         _report_progress(progress_cb, "Building entry point flows", contract=contract.name)
         data = build_entry_point_flows(slither, [contract], progress_cb=progress_cb)
+        _report_progress(
+            progress_cb, "Building read-only entry point flows", contract=contract.name
+        )
+        read_only_data = build_read_only_entry_point_flows(
+            slither, [contract], progress_cb=progress_cb
+        )
         metadata = _collect_render_metadata(slither, [contract])
 
         output_address = f"{project_hash}_{contract.name}"
         contract_views = {
             contract.name: {
                 "entries": data,
+                "read_only_entries": read_only_data,
                 "extra_storage_vars": metadata["extra_storage_vars"],
                 "type_aliases": metadata["type_aliases"],
                 "libraries": metadata["libraries"],
@@ -521,6 +670,7 @@ def generate_from_local(
                 "interfaces": metadata["interfaces"],
             }
         }
+        solidity_label = _solidity_label_for_main_contract(slither, contract)
         output_path = render_html(
             contract_views,
             contract.name,
