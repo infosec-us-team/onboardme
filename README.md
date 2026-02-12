@@ -22,21 +22,21 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 
 - 🧱 Supports local Solidity projects and deployed smart contracts
 - 🧵 Single scrollable execution flow per entry point, including internal calls
+- 🛡️ Summarize all checks on `msg.sender` to quickly detect access control issues or avoid wasting time in well-known and well-protected admin functions
 - 🔎 Storage dependency panel to trace writers for a selected storage variable
-- 🧭 Left entry-point list, center execution flow, right storage read/write panel
 - 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
 - 🪜 Step-by-step mode to reveal internal calls as needed (Shift+T or `?` menu)
 - 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
-- ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
-- ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
 - ✅ Audit marks with a filter to focus on audited entry points
+- 🔗 Persisting audit marks across different smart contracts ensures you never audit the same function twice
 - ⚠️ Warning marks to keep track of potentially buggy code
 - 📝 Inline line comments via hotkey (persisted locally)
 - 👻 Dim irrelevant lines of code
+- 🧭 Open contract in a block explorer via hotkey
+- ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
+- ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
 - 📦 Collapsible function blocks with persisted state and synced collapse across identical code
 - 📋 Chain- and address-aware header with copy-to-clipboard hotkey
-- 🧭 Open contract in a block explorer via hotkey
-- 🔗 Chain name or chain ID input support (`chain:0x...`) with validation
 - 🛠️ Local UI + API (`/generate`) and CLI (`python main.py`)
 
 ## 🧩 Understand the UI layout
@@ -91,15 +91,33 @@ Press 'm' to mark an entry point as audited. Press 'i' to mark an entry point as
 
 Marks will save you time by skipping entry points you have fully audited in the past, and remind you to check again entry points you suspect to be vulnerable.
 
+<img src="./resources/8.png" alt="" style="width:300px; height:auto;">
+
 Press `n` to add/edit an inline comment for the currently hovered code line (comments persist locally in your browser).
 
-<img src="./resources/8.png" alt="" style="width:300px; height:auto;">
+<img src="./resources/10.png" alt="" style="width:600px; height:auto;">
 
 ### 👻 Dim irrelevant lines of code
 
 Press 'z' to dim lines of code distracting you from the ones that matter most.
 
 <img src="./resources/9.png" alt="" style="width:600px; height:auto;">
+
+### 📖 Call read-only functions in the spot
+
+Without changing context, you can read the output of any view-only function with the hotkey `Shift+V`.
+
+<img src="./resources/11.png" alt="" style="width:600px; height:auto;">
+
+Sometimes you may need to read the code of a view-only function that is never executed in any entry point (very common in oracles). You can press `Shift+L` to switch to a panel of view-only functions.
+
+<img src="./resources/12.png" alt="" style="width:600px; height:auto;">
+
+### ❗ Checks on `msg.sender`
+
+Entry points that enforce any check on `msg.sender` are highlighted. Hover the icon to read more details about what is actually enforced, without having to read the actual code.
+
+<img src="./resources/13.png" alt="" style="width:600px; height:auto;">
 
 ### 🧭 Step-by-Step Mode
 

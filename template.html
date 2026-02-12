@@ -3793,7 +3793,7 @@
 			      return null;
 			    };
 
-			    const renderHelpfulInfoCard = (node, index = 0, animate = true) => {
+			    const renderSenderInfoMarkup = (node) => {
 			      if (!node) return '';
 			      const rawChecks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
 			      const checks = mergeSenderChecks(rawChecks);
@@ -3805,7 +3805,6 @@
 			        const kind = (chk?.kind || '').toString();
 			        const callable = (chk?.callable || '<unknown>').toString();
 			        const callableKind = (chk?.callable_kind || '').toString() || 'callable';
-			        const where = fmtSourceLocation(chk?.location || {});
 			        const src = (chk?.source || '').toString().trim();
 
 				        const prefix = `In ${callableKind} ${iconSvg('code', 'w-3 h-3 text-green-600 animate-pulse inline-flex')} <div class="text-green-600 font-mono flex items-center font-bold mt-[1px] inline-flex">${escapeHtmlGlobal(callable)}</div>`;
@@ -3838,31 +3837,25 @@
 
 		      const maxChecks = 24;
 		      const shownChecks = summary.total ? checks.slice(0, maxChecks) : [];
-		      const listMarkup = summary.total
-		        ? `
-              ${shownChecks.map((chk) => `
-                  <div class="text-[10px] font-mono text-slate-200 leading-relaxed">${explainSenderCheck(chk)}</div>
-              `).join('')}
-              ${checks.length > maxChecks ? `<div class="text-[9px] font-mono text-slate-500 uppercase tracking-[0.18em]">+ ${checks.length - maxChecks} more</div>` : ''}
-		        `
-		        : (reads ? `
-		          <div class="text-[10px] font-mono text-slate-300">
-		            This entry point reads "msg.sender", but no sender-dependent revert guards were detected in the flow.
-		          </div>
-		        ` : `
-		          <div class="text-[10px] font-mono text-slate-300">
-		            No sender-dependent information was detected in this entry-point flow.
-		          </div>
-		        `);
+			      const listMarkup = summary.total
+			        ? `
+	              ${shownChecks.map((chk) => `
+	                  <div class="text-[10px] font-mono text-slate-200 leading-relaxed">${explainSenderCheck(chk)}</div>
+	              `).join('')}
+	              ${checks.length > maxChecks ? `<div class="text-[9px] font-mono text-slate-500 uppercase tracking-[0.18em]">+ ${checks.length - maxChecks} more</div>` : ''}
+			        `
+			        : (reads ? `
+			          <div class="text-[10px] font-mono text-slate-300">
+			            This entry point reads "msg.sender", but no sender-dependent revert guards were detected in the flow.
+			          </div>
+			        ` : `
+			          <div class="text-[10px] font-mono text-slate-300">
+			            No sender-dependent information was detected in this entry-point flow.
+			          </div>
+			        `);
 
-		      return `
-		        <div class="node-widget relative pb-4 ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="msg-sender-card" data-node-depth="0">
-              <div class="p-4 text-slate-400 w-full border border-cyan-900/30">
-                ${listMarkup}
-              </div>
-		        </div>
-		      `;
-		    };
+			      return listMarkup;
+			    };
 
 		    const getEntryNodeForFunctionId = (fnId) => {
 		      if (!fnId) return null;
@@ -3875,10 +3868,12 @@
 			      const node = getEntryNodeForFunctionId(fnId);
 			      const checks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
 			      const count = checks.length;
-			      if (!count) return '';
-			      const cls = 'sender-hint-badge is-constrained';
+			      const reads = Boolean(node?.readsMsgSender);
+			      if (!count && !reads) return '';
+			      const cls = count ? 'sender-hint-badge is-constrained' : 'sender-hint-badge';
+			      const safeFnId = escapeHtmlGlobal(fnId || '');
 			      return `
-			        <div class="${cls}" aria-hidden="true">
+			        <div class="${cls}" data-sender-fn-id="${safeFnId}" title="">
 			          ${iconSvg('shield')}
 			        </div>
 			      `;
@@ -4354,6 +4349,20 @@
       hideFnTooltip();
     });
 
+    document.addEventListener('mouseover', (event) => {
+      const badgeEl = event.target.closest('.sender-hint-badge');
+      if (!badgeEl) return;
+      showSenderTooltip(badgeEl);
+    });
+
+    document.addEventListener('mouseout', (event) => {
+      const badgeEl = event.target.closest('.sender-hint-badge');
+      if (!badgeEl) return;
+      const related = event.relatedTarget?.closest('.sender-hint-badge');
+      if (related) return;
+      hideSenderTooltip();
+    });
+
     document.addEventListener('click', (event) => {
       const tokenEl = event.target.closest('.variable-token');
       if (!tokenEl) return;
@@ -4666,6 +4675,7 @@
 
     let varTooltipEl = null;
     let fnTooltipEl = null;
+    let senderTooltipEl = null;
     let functionSourceIndex = new Map();
     let nodeSourceIndex = new Map();
     const sourceIndexCache = new Map();
@@ -4805,6 +4815,19 @@
       `;
       document.body.appendChild(fnTooltipEl);
       return fnTooltipEl;
+    };
+
+    const ensureSenderTooltip = () => {
+      if (senderTooltipEl) return senderTooltipEl;
+      senderTooltipEl = document.createElement('div');
+      senderTooltipEl.id = 'sender-tooltip';
+      senderTooltipEl.className = 'var-tooltip';
+      senderTooltipEl.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="var-tooltip-source" data-role="source"></div>
+      `;
+      document.body.appendChild(senderTooltipEl);
+      return senderTooltipEl;
     };
 
     const resolveTypeAliasRecord = (varName, tokenEl) => {
@@ -4971,6 +4994,37 @@
     const hideFnTooltip = () => {
       if (!fnTooltipEl) return;
       fnTooltipEl.classList.remove('is-visible');
+    };
+
+    const showSenderTooltip = (badgeEl) => {
+      const fnId = badgeEl?.getAttribute?.('data-sender-fn-id') || '';
+      if (!fnId) {
+        hideSenderTooltip();
+        return;
+      }
+      const node = getEntryNodeForFunctionId(fnId);
+      const infoMarkup = renderSenderInfoMarkup(node);
+      if (!infoMarkup) {
+        hideSenderTooltip();
+        return;
+      }
+      hideVarTooltip();
+      hideFnTooltip();
+      const tooltip = ensureSenderTooltip();
+      tooltip.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="var-tooltip-source" data-role="source">
+          ${infoMarkup}
+        </div>
+      `;
+      tooltip.classList.remove('is-truncated');
+      tooltip.classList.add('is-visible');
+      positionVarTooltip(badgeEl, tooltip);
+    };
+
+    const hideSenderTooltip = () => {
+      if (!senderTooltipEl) return;
+      senderTooltipEl.classList.remove('is-visible');
     };
 
     const updateStorageSearchResults = () => {
@@ -6301,10 +6355,7 @@
 	      const animateNodes = !isEntrySwitch && !appState.stepByStepEnabled;
 	      const flowPieces = [];
 	      let renderIndex = 0;
-	      graph.forEach((node, i) => {
-	        if (i === 0 && (Boolean(node?.readsMsgSender) || (Array.isArray(node?.msgSenderChecks) && node.msgSenderChecks.length))) {
-	          flowPieces.push(renderHelpfulInfoCard(node, renderIndex++, animateNodes));
-	        }
+	      graph.forEach((node) => {
 	        flowPieces.push(renderNodeWidget(node, renderIndex++, animateNodes, functionInfo));
 	      });
 	      const flowMarkup = flowPieces.join('');
@@ -6404,6 +6455,7 @@
     };
 
 	    const refreshLeftSidebar = () => {
+	      hideSenderTooltip();
 	      const leftEl = document.getElementById('sidebar-left');
 	      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
 	      applySidebarVisibility();
@@ -6413,6 +6465,7 @@
 
     // --- MAIN RENDER LOOP ---
     const renderApp = () => {
+      hideSenderTooltip();
       const container = document.getElementById('app-container');
       const isEntrySwitch = appInitialized && appState.lastAction === 'select-function';
       if (!functionList.length) {
@@ -6749,9 +6802,11 @@
         applyResponsiveGuard();
         hideVarTooltip();
         hideFnTooltip();
+        hideSenderTooltip();
       });
       window.addEventListener('scroll', hideVarTooltip, true);
       window.addEventListener('scroll', hideFnTooltip, true);
+      window.addEventListener('scroll', hideSenderTooltip, true);
 
     });
 
