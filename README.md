@@ -115,7 +115,7 @@ Sometimes you may need to read the code of a view-only function that is never ex
 
 ### ❗ Checks on `msg.sender`
 
-Entry points that enforce any check on `msg.sender` are highlighted. Hover the icon to read more details about what is actually enforced, without having to read the actual code.
+Entry points that enforce any check on `msg.sender` are highlighted. Hover the icon to read more details about what is actually enforced, without having to read the code.
 
 <img src="./resources/13.png" alt="" style="width:600px; height:auto;">
 
