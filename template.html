@@ -961,14 +961,63 @@
     transition: opacity 0.12s ease;
     }
 
-    .code-line.line-dimmed {
-    opacity: 0.35;
-    }
+	    .code-line.line-dimmed {
+	    opacity: 0.35;
+	    }
 
-    .review-toggle {
-    width: 18px;
-    height: 18px;
-    border: 1px solid rgba(251, 146, 60, 0.45);
+		    .sender-hint-badge {
+		    display: inline-flex;
+		    align-items: center;
+		    justify-content: center;
+		    width: 18px;
+		    height: 18px;
+		    padding: 0;
+		    border-radius: 2px;
+		    border: 1px solid rgba(148, 163, 184, 0.22);
+		    background: rgba(15, 23, 42, 0.28);
+		    color: rgba(203, 213, 225, 0.88);
+		    opacity: 0.85;
+		    user-select: none;
+		    flex: 0 0 auto;
+		    transition: opacity 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+		    }
+
+		    .sender-hint-badge svg {
+		    width: 12px;
+		    height: 12px;
+		    }
+
+	    .sender-hint-badge:hover,
+	    .sender-hint-badge:focus {
+	    opacity: 1;
+	    transform: translateY(-0.5px);
+	    border-color: rgba(34, 211, 238, 0.55);
+	    box-shadow: 0 0 12px rgba(6, 182, 212, 0.14);
+	    outline: none;
+	    }
+
+		    .sender-hint-badge.is-constrained {
+		    border-color: rgba(16, 185, 129, 0.35);
+		    background: linear-gradient(90deg, rgba(16, 185, 129, 0.14), rgba(6, 182, 212, 0.08));
+		    color: rgba(167, 243, 208, 0.95);
+		    opacity: 0.95;
+		    box-shadow: inset 0 0 10px rgba(16, 185, 129, 0.08);
+		    }
+
+		    .sender-token {
+		    display: inline-block;
+		    padding: 0 4px;
+		    border-radius: 3px;
+		    border: 1px solid rgba(16, 185, 129, 0.35);
+		    background: rgba(16, 185, 129, 0.12);
+		    color: rgba(167, 243, 208, 0.95);
+		    box-shadow: 0 0 10px rgba(16, 185, 129, 0.08);
+		    }
+
+	    .review-toggle {
+	    width: 18px;
+	    height: 18px;
+	    border: 1px solid rgba(251, 146, 60, 0.45);
     background: rgba(20, 10, 4, 0.75);
     color: #fb923c;
     display: none;
@@ -1590,38 +1639,43 @@
       return JSON.stringify(stable);
     };
 
-	    const buildDataFromJson = (entries = []) => {
-	      const functions = entries.map((entry, idx) => {
-	        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
-	        const fullName = entry.entry_point || `entry_point_${idx}`;
-	        const display = fullName.split('(')[0];
-	        const flowHash = hashString(buildFlowSignature(entry));
-	        return {
-	          id,
-	          name: display.split('.').pop() || display,
-	          signature: fullName,
-	          flowHash,
-	          type: /view|pure/i.test(fullName) ? 'read' : 'write',
-	          contract: entry.contract || 'Unknown',
-	          inputs: Array.isArray(entry?.inputs) ? entry.inputs : [],
-	          outputs: Array.isArray(entry?.outputs) ? entry.outputs : []
-	        };
-	      });
+		    const buildDataFromJson = (entries = []) => {
+		      const functions = entries.map((entry, idx) => {
+		        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
+		        const fullName = entry.entry_point || `entry_point_${idx}`;
+		        const display = fullName.split('(')[0];
+		        const flowHash = hashString(buildFlowSignature(entry));
+		        return {
+		          id,
+		          name: display.split('.').pop() || display,
+		          signature: fullName,
+		          flowHash,
+		          type: /view|pure/i.test(fullName) ? 'read' : 'write',
+		          contract: entry.contract || 'Unknown',
+		          inputs: Array.isArray(entry?.inputs) ? entry.inputs : [],
+		          outputs: Array.isArray(entry?.outputs) ? entry.outputs : []
+		        };
+		      });
 
       const graphs = {};
       const stateReads = {};
       const stateWrites = {};
       entries.forEach((entry, idx) => {
         const flow = entry.flow || [];
-        const entryReadsMsgSender = Boolean(entry.reads_msg_sender);
+        const entryMsgSenderChecks = Array.isArray(entry?.msg_sender_checks) ? entry.msg_sender_checks : [];
+        const entryMsgSenderRestrictions = Array.isArray(entry?.msg_sender_restrictions) ? entry.msg_sender_restrictions : [];
+        const entryReadsMsgSender = Boolean(entry?.reads_msg_sender);
+        const entryHasMsgSenderConstraint = Boolean(entry?.msg_sender_constrained) || entryMsgSenderChecks.length > 0;
         const entryStateWrites = (entry.state_variables_written || []).map((s) => s.name);
         const functionId = functions[idx]?.id;
         stateReads[functionId] = Array.isArray(entry.state_variables_read) ? entry.state_variables_read : [];
         stateWrites[functionId] = Array.isArray(entry.state_variables_written) ? entry.state_variables_written : [];
         graphs[functionId] = flow.map((step, stepIndex) => {
+          const stepMsgSenderChecks = Array.isArray(step?.msg_sender_checks) ? step.msg_sender_checks : [];
+          const stepHasMsgSenderConstraint = Boolean(step?.msg_sender_constrained) || stepMsgSenderChecks.length > 0;
           const restrictions = (() => {
-            if (stepIndex === 0 && entry.require_assert_statements && entry.require_assert_statements.length) {
-              return entry.require_assert_statements;
+            if (stepIndex === 0 && entryMsgSenderRestrictions.length) {
+              return entryMsgSenderRestrictions;
             }
             if (step.restrictions && step.restrictions.length) return step.restrictions;
             return [];
@@ -1647,7 +1701,9 @@
             type: stepIndex === 0 ? 'entry-point' : 'internal',
             selector: step.selector || '',
             complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
-            hasMsgSenderCheck: stepIndex === 0 ? entryReadsMsgSender : false,
+            hasMsgSenderCheck: stepIndex === 0 ? entryHasMsgSenderConstraint : stepHasMsgSenderConstraint,
+            readsMsgSender: stepIndex === 0 ? entryReadsMsgSender : undefined,
+            msgSenderChecks: stepIndex === 0 ? entryMsgSenderChecks : stepMsgSenderChecks,
             modifiedStateVariables: stepIndex === 0 ? entryStateWrites : [],
             variableRecords: Array.isArray(step.variable_records) ? step.variable_records : [],
             variableScopes,
@@ -3093,15 +3149,20 @@
                 const callPrefix = line.slice(0, token.start);
                 const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
                 const isThisCall = /(?:^|[^a-zA-Z0-9_])this\s*\.\s*$/.test(callPrefix);
+                const isMemberAccess = /\.\s*$/.test(callPrefix);
                 const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
                 const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
                   ? qualifiedMatch[1]
                   : '';
-                const isExternalMember = callContract
-                  && !isSuperCall
-                  && !isThisCall
-                  && !knownContractsLower.has(callContract.toLowerCase());
-                const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isExternalMember);
+                const isKnownContract = Boolean(callContract) && knownContractsLower.has(callContract.toLowerCase());
+
+                // Member calls like `reserve.cache()` are often Solidity `using Lib for Type` extension calls.
+                // Those have an "implicit" first argument (the receiver), so their definition arity is `callArity + 1`.
+                const allowDirectLink = !isDeclaration && (!isMemberAccess || isSuperCall || isThisCall || isKnownContract);
+                let resolvedKey = resolveFunctionLinkKey(token.text, arity, allowDirectLink);
+                if (!resolvedKey && !isDeclaration && isMemberAccess && arity !== null) {
+                  resolvedKey = resolveFunctionLinkKey(token.text, arity + 1, true);
+                }
                 if (resolvedKey) {
                   const callMeta = isSuperCall
                     ? ' data-fn-call="super"'
@@ -3453,13 +3514,15 @@
         </div>
     `;
 
-    const iconSvg = (name, className = '') => {
-      const cls = className ? ` class="${className}"` : '';
-      switch (name) {
-        case 'layers':
-          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>`;
-        case 'radical':
-          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M3 12h3.28a1 1 0 0 1 .948.684l2.298 7.934a.5.5 0 0 0 .96-.044L13.82 4.771A1 1 0 0 1 14.792 4H21"/></svg>`;
+	    const iconSvg = (name, className = '') => {
+	      const cls = className ? ` class="${className}"` : '';
+	      switch (name) {
+	        case 'shield':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>`;
+	        case 'layers':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>`;
+	        case 'radical':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M3 12h3.28a1 1 0 0 1 .948.684l2.298 7.934a.5.5 0 0 0 .96-.044L13.82 4.771A1 1 0 0 1 14.792 4H21"/></svg>`;
         case 'monitor-smartphone':
           return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg>`;
         case 'database':
@@ -3484,26 +3547,348 @@
       }
     };
 
-    const renderStorageSection = (items = [], emptyIcon, emptyText) => {
-      if (!items.length) {
-        return `
-            <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
-                ${iconSvg(emptyIcon, 'w-4 h-4 text-slate-500')}
-                <span>${emptyText}</span>
-            </div>
-        `;
-      }
+	    const renderStorageSection = (items = [], emptyIcon, emptyText) => {
+	      if (!items.length) {
+	        return `
+	            <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
+	                ${iconSvg(emptyIcon, 'w-4 h-4 text-slate-500')}
+	                <span>${emptyText}</span>
+	            </div>
+	        `;
+	      }
 
-      return items.map((item) => {
-        return isStructType(item.type, item.source) ? renderStructCard(item) : renderScalarRow(item);
-      }).join('');
+	      return items.map((item) => {
+	        return isStructType(item.type, item.source) ? renderStructCard(item) : renderScalarRow(item);
+	      }).join('');
+	    };
+
+	    const asIntOrNull = (value) => {
+	      const n = typeof value === 'number' ? value : parseInt(value, 10);
+	      return Number.isFinite(n) ? n : null;
+	    };
+
+	    const shortenFilename = (filename = '') => {
+	      const raw = (filename || '').toString().trim();
+	      if (!raw) return '<unknown>';
+	      const normalized = raw.replace(/\\/g, '/');
+	      const parts = normalized.split('/').filter(Boolean);
+	      if (parts.length <= 2) return parts.join('/');
+	      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+	    };
+
+	    const fmtSourceLocation = (loc) => {
+	      if (!loc || typeof loc !== 'object') return '<unknown>';
+	      const file = shortenFilename(loc.filename || '');
+	      const start = asIntOrNull(loc.start_line);
+	      const end = asIntOrNull(loc.end_line);
+	      if (start !== null && end !== null && start !== end) return `${file}:L${start}-L${end}`;
+	      if (start !== null) return `${file}:L${start}`;
+	      return file || '<unknown>';
+	    };
+
+    const takeFirstLines = (source = '', maxLines = 3) => {
+      const text = (source || '').toString();
+      if (!text) return '';
+
+      // Collapse multiple spaces/tabs into one space
+      const normalized = text.replace(/[ \t]+/g, ' ').trim();
+
+      const lines = normalized.split('\n');
+
+      return `${lines.slice(0, maxLines).join('')} ...`;
     };
 
-    const buildMarkdownReport = (fnId) => {
-      const fn = functionList.find((f) => f.id === fnId);
-      const graph = callGraphs[fnId] || [];
-      const reads = stateReadsByFunction[fnId] || [];
-      const writes = stateWritesByFunction[fnId] || [];
+    const escapeAndHighlight = (text = '') => {
+      const src = (text || '').toString();
+      if (!src) return '';
+      const lines = src.split('\n');
+      const highlighted = lines.map((line) => highlightSnippetLine(line)).join('\n');
+      // Preserve newlines in inline contexts (e.g. inside explanatory text).
+      return `<span class="whitespace-pre-wrap font-bold">${highlighted}</span>`;
+    };
+
+	    const senderKindMeta = (kindRaw = '') => {
+	      const kind = (kindRaw || '').toString();
+	      switch (kind) {
+	        case 'require':
+	          return { label: 'REQUIRE', accent: 'emerald' };
+	        case 'assert':
+	          return { label: 'ASSERT', accent: 'rose' };
+	        case 'if_revert':
+	          return { label: 'IF-REVERT', accent: 'amber' };
+	        case 'external_call_sender_arg':
+	          return { label: 'EXTERNAL', accent: 'sky' };
+	        default:
+	          return { label: (kind || 'CHECK').toUpperCase(), accent: 'slate' };
+	      }
+	    };
+
+		    const summarizeSenderChecks = (checks = []) => {
+		      const out = {
+		        total: 0,
+		        require: 0,
+		        assert: 0,
+		        if_revert: 0,
+		        external_call_sender_arg: 0,
+		        other: 0
+		      };
+		      if (!Array.isArray(checks)) return out;
+		      out.total = checks.length;
+		      checks.forEach((chk) => {
+		        const kind = (chk?.kind || '').toString();
+		        if (kind === 'require') out.require += 1;
+		        else if (kind === 'assert') out.assert += 1;
+		        else if (kind === 'if_revert') out.if_revert += 1;
+		        else if (kind === 'external_call_sender_arg') out.external_call_sender_arg += 1;
+		        else out.other += 1;
+		      });
+		      return out;
+		    };
+
+		    const mergeSenderChecks = (checks = []) => {
+		      // Dedupe common patterns like:
+		      // - require(aclManager.isPoolAdmin(msg.sender), ...)  [require]
+		      // - require(aclManager.isPoolAdmin(msg.sender), ...)  [external_call_sender_arg]
+		      //
+		      // In that case, we render a single "external guard" line for the require.
+		      if (!Array.isArray(checks) || !checks.length) return [];
+		      const pickGuard = (arr) => {
+		        const byKind = (k) => arr.find((x) => (x?.kind || '') === k);
+		        return byKind('require') || byKind('assert') || byKind('if_revert') || arr[0];
+		      };
+		      const keyFor = (chk) => {
+		        const callable = (chk?.callable || '').toString();
+		        const callableKind = (chk?.callable_kind || '').toString();
+		        const src = (chk?.source || '').toString().trim();
+		        const loc = chk?.location || {};
+		        const filename = (loc?.filename || '').toString();
+		        const start = Number.isFinite(loc?.start_line) ? loc.start_line : '';
+		        // Source text is the best signal, location prevents cross-site accidental merges.
+		        return `${callableKind}||${callable}||${filename}||${start}||${src}`;
+		      };
+		      const groups = new Map();
+		      checks.forEach((chk) => {
+		        const key = keyFor(chk);
+		        const list = groups.get(key) || [];
+		        list.push(chk);
+		        groups.set(key, list);
+		      });
+		      const merged = [];
+		      groups.forEach((group) => {
+		        const kinds = new Set(group.map((x) => (x?.kind || '').toString()));
+		        const hasExternal = kinds.has('external_call_sender_arg');
+		        const hasGuard = kinds.has('require') || kinds.has('assert') || kinds.has('if_revert');
+		        const rep = pickGuard(group);
+		        merged.push({
+		          ...rep,
+		          has_external_guard: Boolean(hasExternal && hasGuard),
+		          // If we only saw external_call_sender_arg (no explicit guard kind), preserve it.
+		          kind: hasGuard ? (rep?.kind || 'require') : 'external_call_sender_arg',
+		        });
+		      });
+		      return merged;
+		    };
+
+			    const buildStateVarIndexByName = () => {
+			      const index = new Map();
+			      (Array.isArray(STORAGE_VARIABLES) ? STORAGE_VARIABLES : []).forEach((v) => {
+			        if (!v) return;
+		        const name = (v.name || '').toString().trim();
+		        if (!name) return;
+		        if (!index.has(name)) index.set(name, v);
+		      });
+		      return index;
+		    };
+
+		    const describeStateVar = (name, varIndex) => {
+		      const record = varIndex?.get?.(name);
+		      if (!record) return null;
+		      const isConst = Boolean(record.is_constant);
+		      const isImm = Boolean(record.is_immutable);
+		      if (isConst) return `constant \`${escapeHtmlGlobal(name)}\``;
+		      if (isImm) return `immutable state variable \`${escapeHtmlGlobal(name)}\``;
+		      return `state variable \`${escapeHtmlGlobal(name)}\``;
+		    };
+
+			    const parseMsgSenderComparison = (source = '') => {
+			      const s = (source || '').toString();
+			      // Basic patterns. If we can't match, we fall back to a generic explanation.
+			      // Note: don't truncate member/index expressions like `_reserves[asset].aTokenAddress`.
+			      const baseIdent = (expr = '') => {
+			        const m = (expr || '').toString().trim().match(/^[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*/);
+			        return m ? m[0] : '';
+			      };
+			      const parseForwardExpr = (text, startIdx) => {
+			        let i = startIdx;
+			        while (i < text.length && /\s/.test(text[i])) i += 1;
+			        const begin = i;
+			        let depthParen = 0;
+			        let depthBracket = 0;
+			        let depthBrace = 0;
+			        let inSingle = false;
+			        let inDouble = false;
+			        let inTemplate = false;
+			        let escape = false;
+			        for (; i < text.length; i += 1) {
+			          const ch = text[i];
+			          if (escape) {
+			            escape = false;
+			            continue;
+			          }
+			          if (inSingle) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === "'") inSingle = false;
+			            continue;
+			          }
+			          if (inDouble) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === '"') inDouble = false;
+			            continue;
+			          }
+			          if (inTemplate) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === '`') inTemplate = false;
+			            continue;
+			          }
+			          if (ch === "'") {
+			            inSingle = true;
+			            continue;
+			          }
+			          if (ch === '"') {
+			            inDouble = true;
+			            continue;
+			          }
+			          if (ch === '`') {
+			            inTemplate = true;
+			            continue;
+			          }
+			          if (ch === '(') depthParen += 1;
+			          else if (ch === ')') {
+			            if (depthParen > 0) depthParen -= 1;
+			            else break; // end of surrounding call/require
+			          } else if (ch === '[') depthBracket += 1;
+			          else if (ch === ']') depthBracket = Math.max(0, depthBracket - 1);
+			          else if (ch === '{') depthBrace += 1;
+			          else if (ch === '}') depthBrace = Math.max(0, depthBrace - 1);
+
+			          if (depthParen === 0 && depthBracket === 0 && depthBrace === 0) {
+			            if (ch === ',' || ch === ';' || ch === '\n') break;
+			          }
+			        }
+			        return text.slice(begin, i).trim();
+			      };
+
+			      const re = /\bmsg\.sender\b\s*([!=]=)\s*/g;
+			      const m = re.exec(s);
+			      if (m && m.index != null) {
+			        const op = m[1];
+			        const rhsStart = m.index + m[0].length;
+			        const otherExpr = parseForwardExpr(s, rhsStart);
+			        if (otherExpr) return { op, otherExpr, otherBase: baseIdent(otherExpr) };
+			      }
+
+			      // Flipped: `<expr> == msg.sender`. Keep it best-effort.
+			      const flipped = s.match(/([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF\.\[\]]*)\s*([!=]=)\s*\bmsg\.sender\b/);
+			      if (flipped) return { op: flipped[2], otherExpr: flipped[1], otherBase: baseIdent(flipped[1]) };
+			      return null;
+			    };
+
+			    const renderHelpfulInfoCard = (node, index = 0, animate = true) => {
+			      if (!node) return '';
+			      const rawChecks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
+			      const checks = mergeSenderChecks(rawChecks);
+			      const reads = Boolean(node?.readsMsgSender);
+			      const summary = summarizeSenderChecks(checks);
+			      const varIndex = buildStateVarIndexByName();
+
+			      const explainSenderCheck = (chk) => {
+			        const kind = (chk?.kind || '').toString();
+			        const callable = (chk?.callable || '<unknown>').toString();
+			        const callableKind = (chk?.callable_kind || '').toString() || 'callable';
+			        const where = fmtSourceLocation(chk?.location || {});
+			        const src = (chk?.source || '').toString().trim();
+
+				        const prefix = `In ${callableKind} ${iconSvg('code', 'w-3 h-3 text-green-600 animate-pulse inline-flex')} <div class="text-green-600 font-mono flex items-center font-bold mt-[1px] inline-flex">${escapeHtmlGlobal(callable)}</div>`;
+				        const cmp = parseMsgSenderComparison(src);
+				        if (cmp) {
+				          const otherExprRaw = (cmp.otherExpr || '').toString().trim();
+				          const otherBase = (cmp.otherBase || '').toString().trim();
+				          const otherBaseShort = otherBase ? otherBase.split('.').pop() : '';
+				          const baseDesc = otherBaseShort ? describeStateVar(otherBaseShort, varIndex) : null;
+				          const otherExprEscaped = escapeHtmlGlobal(otherExprRaw || otherBaseShort || '');
+				          const otherDesc = otherExprRaw
+				            ? `\`${otherExprEscaped}\`${baseDesc && otherExprRaw !== otherBaseShort ? ` (from ${baseDesc})` : ''}`
+				            : (baseDesc || `\`${escapeHtmlGlobal(otherBaseShort)}\``);
+				          return `${prefix}, <span class="sender-token">msg.sender</span> is compared to ${otherDesc}`;
+				        }
+
+			        if (kind === 'external_call_sender_arg') {
+			          return `${prefix}, an external call uses <span class="sender-token">msg.sender</span> as an argument.${src ? ` (\`${escapeAndHighlight(takeFirstLines(src, 1))}\`)` : ''}`;
+			        }
+
+			        if (src) {
+			          if (chk?.has_external_guard) {
+			            return `${prefix}, there is an external guard: \`${escapeAndHighlight(takeFirstLines(src, 2))}\``;
+			          }
+			          return `${prefix}, there is a <span class="sender-token">msg.sender</span> guard: \`${escapeAndHighlight(takeFirstLines(src, 2))}\``;
+			        }
+
+			        return `${prefix}, a <span class="sender-token">msg.sender</span> dependent revert guard was detected.`;
+			      };
+
+		      const maxChecks = 24;
+		      const shownChecks = summary.total ? checks.slice(0, maxChecks) : [];
+		      const listMarkup = summary.total
+		        ? `
+              ${shownChecks.map((chk) => `
+                  <div class="text-[10px] font-mono text-slate-200 leading-relaxed">${explainSenderCheck(chk)}</div>
+              `).join('')}
+              ${checks.length > maxChecks ? `<div class="text-[9px] font-mono text-slate-500 uppercase tracking-[0.18em]">+ ${checks.length - maxChecks} more</div>` : ''}
+		        `
+		        : (reads ? `
+		          <div class="text-[10px] font-mono text-slate-300">
+		            This entry point reads "msg.sender", but no sender-dependent revert guards were detected in the flow.
+		          </div>
+		        ` : `
+		          <div class="text-[10px] font-mono text-slate-300">
+		            No sender-dependent information was detected in this entry-point flow.
+		          </div>
+		        `);
+
+		      return `
+		        <div class="node-widget relative pb-4 ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="msg-sender-card" data-node-depth="0">
+              <div class="p-4 text-slate-400 w-full border border-cyan-900/30">
+                ${listMarkup}
+              </div>
+		        </div>
+		      `;
+		    };
+
+		    const getEntryNodeForFunctionId = (fnId) => {
+		      if (!fnId) return null;
+		      const graph = callGraphs?.[fnId];
+	      if (!Array.isArray(graph) || !graph.length) return null;
+	      return graph[0] || null;
+		    };
+
+			    const renderSenderHintBadge = (fnId) => {
+			      const node = getEntryNodeForFunctionId(fnId);
+			      const checks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
+			      const count = checks.length;
+			      if (!count) return '';
+			      const cls = 'sender-hint-badge is-constrained';
+			      return `
+			        <div class="${cls}" aria-hidden="true">
+			          ${iconSvg('shield')}
+			        </div>
+			      `;
+			    };
+
+		    const buildMarkdownReport = (fnId) => {
+		      const fn = functionList.find((f) => f.id === fnId);
+		      const graph = callGraphs[fnId] || [];
+	      const reads = stateReadsByFunction[fnId] || [];
+	      const writes = stateWritesByFunction[fnId] || [];
       const esc = (text = '') => String(text).replace(/```/g, '\\`\\`\\`');
       const mdLines = [];
 
@@ -3624,14 +4009,12 @@
                     </div>
                     ${auditFlagMarkup}
                 </div>
-                <div class="node-body space-y-6">
-                  <div class="node-body-inner space-y-6">
-
-                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords, node.id)}
-
-                  </div>
-                </div>
-            `;
+		                <div class="node-body space-y-6">
+		                  <div class="node-body-inner space-y-6">
+		                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords, node.id)}
+		                  </div>
+		                </div>
+		            `;
 
       return `
                 <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${auditedCollapsed ? 'node-audit-marked' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-node-contract="${escapeHtmlGlobal(node.contractName || '')}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
@@ -3657,50 +4040,56 @@
       }, 1000);
     };
 
-    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
-      if (!key) return null;
-      const mainFlow = document.getElementById('main-flow');
-      if (!mainFlow) return null;
-      let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
-      if (!targets.length && !key.includes(':')) {
-        targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
-      }
-      if (!targets.length) return null;
-      let target = targets[0];
-      const pickNextByDepth = (candidates, originDepth) => {
-        if (!Number.isFinite(originDepth)) return candidates[0];
-        const ordered = candidates
-          .map((el) => ({ el, depth: Number(el.getAttribute('data-node-depth')) }))
-          .filter((item) => Number.isFinite(item.depth))
-          .sort((a, b) => a.depth - b.depth);
-        if (!ordered.length) return candidates[0];
-        const next = ordered.find((item) => item.depth > originDepth);
-        return next ? next.el : ordered[0].el;
-      };
-      if (originNodeId) {
-        const originEl = mainFlow.querySelector(`[data-node-id="${originNodeId}"]`);
-        const filtered = targets.filter((el) => el.getAttribute('data-node-id') !== originNodeId);
-        if (filtered.length) targets = filtered;
-        if (originEl) {
-          const originDepth = Number(originEl.getAttribute('data-node-depth'));
-          const originContractName = originContract || originEl.getAttribute('data-node-contract') || '';
-          let preferredTargets = targets;
-          if (callContract) {
-            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === callContract);
-            if (byContract.length) preferredTargets = byContract;
-          } else if (callKind === 'super') {
-            if (originContractName) {
-              const byContract = targets.filter((el) => el.getAttribute('data-node-contract') !== originContractName);
-              if (byContract.length) preferredTargets = byContract;
-            }
-          }
-          target = pickNextByDepth(preferredTargets, originDepth);
-        } else {
-          target = targets[0];
-        }
-      }
-      return target;
-    };
+	    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
+	      if (!key) return null;
+	      const mainFlow = document.getElementById('main-flow');
+	      if (!mainFlow) return null;
+	      let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
+	      if (!targets.length && !key.includes(':')) {
+	        targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
+	      }
+	      if (!targets.length) return null;
+	      let target = targets[0];
+	      const pickNextByDepth = (candidates, originDepth) => {
+	        if (!Number.isFinite(originDepth)) return candidates[0];
+	        const ordered = candidates
+	          .map((el) => ({ el, depth: Number(el.getAttribute('data-node-depth')) }))
+	          .filter((item) => Number.isFinite(item.depth))
+	          .sort((a, b) => a.depth - b.depth);
+	        if (!ordered.length) return candidates[0];
+	        const next = ordered.find((item) => item.depth > originDepth);
+	        return next ? next.el : ordered[0].el;
+	      };
+	      if (originNodeId) {
+	        const originEl = mainFlow.querySelector(`[data-node-id="${originNodeId}"]`);
+	        const filtered = targets.filter((el) => el.getAttribute('data-node-id') !== originNodeId);
+	        if (filtered.length) targets = filtered;
+	        if (originEl) {
+	          const originDepth = Number(originEl.getAttribute('data-node-depth'));
+	          const originContractName = originContract || originEl.getAttribute('data-node-contract') || '';
+	          let preferredTargets = targets;
+	          if (callContract) {
+	            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === callContract);
+	            if (byContract.length) preferredTargets = byContract;
+	          } else if (callKind === 'super') {
+	            if (originContractName) {
+	              const byContract = targets.filter((el) => el.getAttribute('data-node-contract') !== originContractName);
+	              if (byContract.length) preferredTargets = byContract;
+	            }
+	          } else if (activeContract) {
+	            // Solidity virtual dispatch: unqualified internal calls from inherited code
+	            // (e.g. base `transfer()` calling `_transfer()`) resolve to the most-derived
+	            // override on the runtime contract (the active contract view).
+	            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === activeContract);
+	            if (byContract.length) preferredTargets = byContract;
+	          }
+	          target = pickNextByDepth(preferredTargets, originDepth);
+	        } else {
+	          target = targets[0];
+	        }
+	      }
+	      return target;
+	    };
 
     const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
       const target = resolveFlowTargetElement(key, originNodeId, originContract, callKind, callContract);
@@ -3816,7 +4205,7 @@
 
       const title = btn.querySelector('[data-role="fn-title"]');
       if (title) {
-        title.className = `font-display text-xs font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
+        title.className = `font-display text-xs truncate font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
       }
     };
 
@@ -4059,15 +4448,15 @@
       setTimeout(doRedirect, 800);
     };
 
-    const toggleSidebar = (side) => {
-      if (side === 'left') {
-        appState.leftCollapsed = !appState.leftCollapsed;
-        appState.lastAction = 'toggle-left';
-      }
-      if (side === 'right') {
-        if (appState.storagePanelOpen) {
-          closeStoragePanel();
-        }
+	    const toggleSidebar = (side) => {
+	      if (side === 'left') {
+	        appState.leftCollapsed = !appState.leftCollapsed;
+	        appState.lastAction = 'toggle-left';
+	      }
+	      if (side === 'right') {
+	        if (appState.storagePanelOpen) {
+	          closeStoragePanel();
+	        }
         appState.rightCollapsed = !appState.rightCollapsed;
         appState.lastAction = 'toggle-right';
         if (!appState.rightCollapsed) {
@@ -4129,9 +4518,9 @@
       const wasMode = appState.entryPointMode;
       closeSearchPalette();
 
-      // If the left panel is already open and we press the hotkey for the same mode,
-      // behave like a normal toggle: hide the panel.
-      if (!wasCollapsed && wasMode === targetMode) {
+      // For the same dataset, behave like a pure visibility toggle.
+      // This preserves the currently selected entry point when reopening.
+      if (wasMode === targetMode) {
         toggleSidebar('left');
         return;
       }
@@ -5759,7 +6148,7 @@
                                 <button type="button" onclick="openContractPalette()" class="px-4 py-3 w-full flex items-center gap-3 text-left group">
                                     <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('box', 'w-4 h-4 text-slate-400')}</div>
                                     <div class="flex-1 min-w-0">
-                                        <div class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${escapeHtmlGlobal(activeContract || '')}</div>
+                                        <div class="text-[10px] text-slate-400 uppercase tracking-widest font-display truncate">${escapeHtmlGlobal(activeContract || '')}</div>
                                         <div class="text-[9px] text-cyan-700 font-mono uppercase">Top-level contract</div>
                                     </div>
                                     <div class="text-[10px] tracking-widest text-slate-400">▼</div>
@@ -5790,21 +6179,22 @@
           : iconSvg('hexagon', 'w-3 h-3')}
                                             </div>
                                             <div class="flex flex-col min-w-0">
-                                                <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
+                                                <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors truncate ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
                                                 <span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${fn.signature}</span>
                                             </div>
-                                        </div>
-                                        <div class="relative z-10 flex items-center gap-2">
-                                          <div data-review-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.flowHash || fn.id}', event)" class="review-toggle rounded-sm ${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
-                                            !
-                                          </div>
-                                          <div data-audit-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.flowHash || fn.id}', event)" class="audit-toggle rounded-sm ${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                              <path d="M20 6 9 17l-5-5"></path>
-                                            </svg>
-                                          </div>
-                                        </div>
-                                    </button>
+	                                        </div>
+	                                        <div class="relative z-10 flex items-center gap-2">
+	                                          ${renderSenderHintBadge(fn.id)}
+	                                          <div data-review-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.flowHash || fn.id}', event)" class="review-toggle rounded-sm ${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
+	                                            !
+	                                          </div>
+	                                          <div data-audit-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.flowHash || fn.id}', event)" class="audit-toggle rounded-sm ${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
+	                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+	                                              <path d="M20 6 9 17l-5-5"></path>
+	                                            </svg>
+	                                          </div>
+	                                        </div>
+	                                    </button>
                                 `).join('') || `<div class="px-3 py-6 text-center text-[10px] font-mono text-slate-600 uppercase tracking-widest">No unaudited entry points.</div>`}
                             </div>
                             <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
@@ -5907,13 +6297,20 @@
           .filter(Boolean)
           .map((name) => name.toLowerCase())
       );
-      const functionInfo = { nameArityMap, uniqueNames, knownContractsLower };
-      const flowMarkup = graph
-        .map((node, i) => renderNodeWidget(node, i, !isEntrySwitch && !appState.stepByStepEnabled, functionInfo))
-        .join('');
-      return `
-                <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
-                     <div class="h-full flex flex-col">
+	      const functionInfo = { nameArityMap, uniqueNames, knownContractsLower };
+	      const animateNodes = !isEntrySwitch && !appState.stepByStepEnabled;
+	      const flowPieces = [];
+	      let renderIndex = 0;
+	      graph.forEach((node, i) => {
+	        if (i === 0 && (Boolean(node?.readsMsgSender) || (Array.isArray(node?.msgSenderChecks) && node.msgSenderChecks.length))) {
+	          flowPieces.push(renderHelpfulInfoCard(node, renderIndex++, animateNodes));
+	        }
+	        flowPieces.push(renderNodeWidget(node, renderIndex++, animateNodes, functionInfo));
+	      });
+	      const flowMarkup = flowPieces.join('');
+	      return `
+	                <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
+	                     <div class="h-full flex flex-col">
                         <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
                             <div class="mx-auto">
                                 ${flowMarkup}
@@ -6006,13 +6403,13 @@
       applySidebarVisibility();
     };
 
-    const refreshLeftSidebar = () => {
-      const leftEl = document.getElementById('sidebar-left');
-      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
-      applySidebarVisibility();
-      updateAuditMarksUI();
-      updateReviewMarksUI();
-    };
+	    const refreshLeftSidebar = () => {
+	      const leftEl = document.getElementById('sidebar-left');
+	      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
+	      applySidebarVisibility();
+	      updateAuditMarksUI();
+	      updateReviewMarksUI();
+	    };
 
     // --- MAIN RENDER LOOP ---
     const renderApp = () => {
@@ -6088,22 +6485,22 @@
     };
 
     // Init
-    document.addEventListener('DOMContentLoaded', async () => {
-      outroOverlay = document.getElementById('outro-overlay');
-      appState.stepByStepEnabled = loadStepByStepPreference();
-      document.body.classList.toggle('step-by-step-active', appState.stepByStepEnabled);
-      loadCodeFontSize();
-      loadReviewMarks();
-      loadAuditMarks();
-      loadDimmedLines();
-      loadLineComments();
-      loadCollapsedNodes();
-      loadHideCollapsed();
-      await loadHotkeyConfig();
-      const initialContract = resolveDefaultContract();
-      setActiveContract(initialContract, { initial: true });
+	    document.addEventListener('DOMContentLoaded', async () => {
+	      outroOverlay = document.getElementById('outro-overlay');
+	      appState.stepByStepEnabled = loadStepByStepPreference();
+	      document.body.classList.toggle('step-by-step-active', appState.stepByStepEnabled);
+	      loadCodeFontSize();
+	      loadReviewMarks();
+	      loadAuditMarks();
+	      loadDimmedLines();
+		      loadLineComments();
+		      loadCollapsedNodes();
+		      loadHideCollapsed();
+		      await loadHotkeyConfig();
+		      const initialContract = resolveDefaultContract();
+		      setActiveContract(initialContract, { initial: true });
 
-      ensureSearchPalette();
+	      ensureSearchPalette();
       ensureReadOnlyCallModal();
       document.addEventListener('keydown', (event) => {
         const target = event.target;

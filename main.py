@@ -237,7 +237,7 @@ def _source_path_for_main_contract(
         return direct[0]
 
     # 2b) Fallback: find any .sol file declaring the contract name.
-    decl_re = re.compile(rf"\\b(contract|interface|library)\\s+{re.escape(name)}\\b")
+    decl_re = re.compile(rf"\b(contract|interface|library)\s+{re.escape(name)}\b")
     for sol_path in sorted(export_dir.rglob("*.sol"), key=lambda p: (len(str(p)), str(p))):
         try:
             text = sol_path.read_text(encoding="utf-8", errors="ignore")
