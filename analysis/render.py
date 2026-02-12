@@ -68,11 +68,14 @@ def render_html(
     rendered_views: Dict[str, Dict[str, Any]] = {}
     for name, view in contract_views.items():
         data = view.get("entries", [])
+        read_only_entries = view.get("read_only_entries", []) or []
         storage_vars, writers_index = _build_storage_payload(
             data, view.get("extra_storage_vars")
         )
         rendered_views[name] = {
             "entries": data,
+            # Not wired into the UI yet; kept for future use.
+            "read_only_entries": read_only_entries,
             "storage_variables": storage_vars,
             "type_aliases": view.get("type_aliases") or [],
             "libraries": view.get("libraries") or [],
@@ -117,7 +120,8 @@ def render_html(
     repo_root = Path(__file__).resolve().parent.parent
     hotkeys_src = repo_root / "src" / "hotkeys.json"
     hotkeys_dst = output_dir / "hotkeys.json"
-    if hotkeys_src.exists() and not hotkeys_dst.exists():
+    if hotkeys_src.exists():
+        # Keep hotkeys in sync with template behavior. Like the HTML file, overwrite on every render.
         hotkeys_dst.write_text(hotkeys_src.read_text(encoding="utf-8"), encoding="utf-8")
     output_path = output_dir / f"{chain}_{address}.html"
     # Always rebuild the dashboard so template changes propagate immediately.

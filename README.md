@@ -22,20 +22,21 @@ It doesn’t replace your IDE; it’s just the fastest way to understand all pos
 
 - 🧱 Supports local Solidity projects and deployed smart contracts
 - 🧵 Single scrollable execution flow per entry point, including internal calls
+- 🛡️ Summarize all checks on `msg.sender` to quickly detect access control issues or avoid wasting time in well-known and well-protected admin functions
 - 🔎 Storage dependency panel to trace writers for a selected storage variable
-- 🧭 Left entry-point list, center execution flow, right storage read/write panel
 - 📈 State Variable Tracking: Visualize how values, tokens, and state changes flow through functions
 - 🪜 Step-by-step mode to reveal internal calls as needed (Shift+T or `?` menu)
 - 🔦 Interactive Flow Highlighting: Click on variables to see all definitions, uses, and assignments
+- ✅ Audit marks with a filter to focus on audited entry points
+- 🔗 Persisting audit marks across different smart contracts ensures you never audit the same function twice
+- ⚠️ Warning marks to keep track of potentially buggy code
+- 📝 Inline line comments via hotkey (persisted locally)
+- 👻 Dim irrelevant lines of code
+- 🧭 Open contract in a block explorer via hotkey
 - ⌨️ Keyboard-centric navigation (`j`/`k` for entry points, `e` search, `r` right panel, `w` storage dependencies)
 - ⚙️ Configurable hotkeys and help overlay via `src/hotkeys.json`
-- ✅ Audit marks with a filter to focus on audited entry points
-- ⚠️ Warning marks to keep track of potentially buggy code
-- 👻 Dim irrelevant lines of code
 - 📦 Collapsible function blocks with persisted state and synced collapse across identical code
 - 📋 Chain- and address-aware header with copy-to-clipboard hotkey
-- 🧭 Open contract in a block explorer via hotkey
-- 🔗 Chain name or chain ID input support (`chain:0x...`) with validation
 - 🛠️ Local UI + API (`/generate`) and CLI (`python main.py`)
 
 ## 🧩 Understand the UI layout
@@ -92,11 +93,31 @@ Marks will save you time by skipping entry points you have fully audited in the 
 
 <img src="./resources/8.png" alt="" style="width:300px; height:auto;">
 
+Press `n` to add/edit an inline comment for the currently hovered code line (comments persist locally in your browser).
+
+<img src="./resources/10.png" alt="" style="width:600px; height:auto;">
+
 ### 👻 Dim irrelevant lines of code
 
 Press 'z' to dim lines of code distracting you from the ones that matter most.
 
 <img src="./resources/9.png" alt="" style="width:600px; height:auto;">
+
+### 📖 Call read-only functions in the spot
+
+Without changing context, you can read the output of any view-only function with the hotkey `Shift+V`.
+
+<img src="./resources/11.png" alt="" style="width:600px; height:auto;">
+
+Sometimes you may need to read the code of a view-only function that is never executed in any entry point (very common in oracles). You can press `Shift+L` to switch to a panel of view-only functions.
+
+<img src="./resources/12.png" alt="" style="width:600px; height:auto;">
+
+### ❗ Checks on `msg.sender`
+
+Entry points that enforce any check on `msg.sender` are highlighted. Hover the icon to read more details about what is actually enforced, without having to read the actual code.
+
+<img src="./resources/13.png" alt="" style="width:600px; height:auto;">
 
 ### 🧭 Step-by-Step Mode
 
@@ -117,6 +138,7 @@ Edit `src/hotkeys.json` to customize shortcuts and the help popup. Each action m
   "actions": {
     "nextEntry": ["j"],
     "prevEntry": ["k"],
+    "editLineComment": ["n"],
     "toggleAuditFilter": ["h"]
   },
   "help": [
@@ -126,16 +148,46 @@ Edit `src/hotkeys.json` to customize shortcuts and the help popup. Each action m
 }
 ```
 
-> There are many more hotkeys in src/hotkey.json
+> There are many more hotkeys in `src/hotkeys.json`
 
 **We strongly encourage you to press "?" and read the list of shortcuts**, because **some features are hidden from the UI** and can only be triggered from a hotkey.
 
 ## 🚀 Quick start (recommended UI flow)
 
-Create a file named `.env` and add your ETHERSCAN_API_KEY:
+Create a file named `.env` (or copy `example.env` to `.env`) and add your `ETHERSCAN_API_KEY`:
 
 ```env
 ETHERSCAN_API_KEY=...
+```
+
+### Read-only contract calls (eth_call) and RPC URLs
+
+The UI includes a **read-only contract call** feature (calls `view` / `pure` functions via `eth_call`).
+
+By default, `/eth_call` uses the **Etherscan Proxy API** (requires `ETHERSCAN_API_KEY`).
+
+However, the **free** Etherscan API does not work with these chain IDs:
+
+- BNB Smart Chain Mainnet `56`
+- BNB Smart Chain Testnet `97`
+- Base Mainnet `8453`
+- Base Sepolia `84532`
+- OP Mainnet `10`
+- OP Sepolia `11155420`
+- Avalanche C-Chain `43114`
+- Avalanche Fuji `43113`
+
+For those chains, set an RPC URL in your `.env` using the per-chain variable name:
+
+```env
+RPC_URL_56=...
+RPC_URL_97=...
+RPC_URL_8453=...
+RPC_URL_84532=...
+RPC_URL_10=...
+RPC_URL_11155420=...
+RPC_URL_43114=...
+RPC_URL_43113=...
 ```
 
 Requires **Python 3.10 or newer**.

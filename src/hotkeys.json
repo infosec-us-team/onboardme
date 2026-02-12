@@ -21,6 +21,12 @@
     "toggleLeft": [
       "l"
     ],
+    "toggleReadOnlyLeft": [
+      "shift+l"
+    ],
+    "openReadOnlyCall": [
+      "shift+v"
+    ],
     "toggleRight": [
       "r"
     ],
@@ -116,7 +122,15 @@
     },
     {
       "action": "toggleLeft",
-      "label": "Toggle entry points"
+      "label": "Toggle entry points panel"
+    },
+    {
+      "action": "toggleReadOnlyLeft",
+      "label": "Toggle read-only entry points panel"
+    },
+    {
+      "action": "openReadOnlyCall",
+      "label": "Call read-only function"
     },
     {
       "action": "toggleRight",

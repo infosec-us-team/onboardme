@@ -7,6 +7,7 @@
   <title>REPLACE_THIS_WITH_TITLE</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -14,641 +15,1088 @@
     rel="stylesheet">
   <style>
     :root {
-      --color-cyan: #06b6d4;
-      --color-cyan-glow: rgba(6, 182, 212, 0.6);
-      --color-bg-dark: #040812;
-      --code-font-size: 10px;
-      --code-line-height: 14px;
+    --color-cyan: #06b6d4;
+    --color-cyan-glow: rgba(6, 182, 212, 0.6);
+    --color-bg-dark: #040812;
+    --code-font-size: 10px;
+    --code-line-height: 14px;
     }
 
     body {
-      font-family: 'Rajdhani', sans-serif;
-      background-color: var(--color-bg-dark);
-      color: #e2e8f0;
-      overflow: hidden;
+    font-family: 'Rajdhani', sans-serif;
+    background-color: var(--color-bg-dark);
+    color: #e2e8f0;
+    overflow: hidden;
     }
 
     .code-block {
-      font-size: var(--code-font-size);
-      line-height: var(--code-line-height);
+    font-size: var(--code-font-size);
+    line-height: var(--code-line-height);
     }
 
     .font-mono {
-      font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', monospace;
     }
 
     .font-display {
-      font-family: 'Orbitron', sans-serif;
+    font-family: 'Orbitron', sans-serif;
     }
 
     .contract-select {
-      -webkit-appearance: none;
-      -moz-appearance: none;
-      appearance: none;
-      background-image: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: none;
     }
 
     .contract-select option {
-      background-color: #020712;
-      color: #8ce8ff;
-      font-family: 'Rajdhani', sans-serif;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
+    background-color: #020712;
+    color: #8ce8ff;
+    font-family: 'Rajdhani', sans-serif;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     }
 
     /* --- GLOBAL FX --- */
 
 
     .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+    width: 6px;
+    height: 6px;
     }
 
     .custom-scrollbar::-webkit-scrollbar-track {
-      background: rgba(4, 8, 18, 0.8);
+    background: rgba(4, 8, 18, 0.8);
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #0e7490;
-      border: 1px solid #06b6d4;
+    background: #0e7490;
+    border: 1px solid #06b6d4;
     }
 
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #06b6d4;
+    background: #06b6d4;
     }
 
     .text-glow {
-      text-shadow: 0 0 5px var(--color-cyan-glow);
+    text-shadow: 0 0 5px var(--color-cyan-glow);
     }
 
-    @keyframes pulse-glow {
-
-      0%,
-      100% {
-        text-shadow: 0 0 5px var(--color-cyan-glow);
-        opacity: 1;
-      }
-
-      50% {
-        text-shadow: 0 0 15px var(--color-cyan), 0 0 20px var(--color-cyan);
-        opacity: 0.8;
-      }
+    /* Popup backdrops: shared look + shared code path (no Tailwind/JIT dependency). */
+    .popup-overlay {
+    --popup-blur: 2px;
+    --popup-sat: 115%;
+    --popup-scrim-alpha: 0.48;
+    --popup-cyan-alpha: 0.10;
+    --popup-grid-opacity: 0.40;
     }
 
+    .popup-overlay-bg {
+    position: absolute;
+    inset: 0;
+    /* Needs some transparency for the blur to be perceptible. */
+    background-color: rgba(4, 8, 18, var(--popup-scrim-alpha));
+    background-image: radial-gradient(circle at center, rgba(6, 182, 212, var(--popup-cyan-alpha)), rgba(4, 8, 18, var(--popup-scrim-alpha)));
+    backdrop-filter: blur(var(--popup-blur)) saturate(var(--popup-sat));
+    -webkit-backdrop-filter: blur(var(--popup-blur)) saturate(var(--popup-sat));
+    }
+
+    .popup-overlay-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--popup-grid-opacity);
+    /* Tiny alpha keeps backdrop-filter implementations consistent across browsers. */
+    background-color: rgba(4, 8, 18, 0.01);
+    background-image:
+    linear-gradient(to right, rgba(15, 27, 46, 0.85) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 27, 46, 0.85) 1px, transparent 1px);
+    background-size: 20px 20px;
+    }
+
+    /* --- Read-only Call: Right Details Panel --- */
+    .readonly-details-shell {
+    position: relative;
+    height: auto;
+    min-height: 100%;
+    padding: 16px;
+    overflow: hidden;
+    isolation: isolate;
+    background: transparent;
+    }
+
+    .readonly-details-shell > * {
+    position: relative;
+    z-index: 1;
+    }
+
+    .readonly-details-shell::before {
+    content: none;
+    }
+
+    .readonly-details-shell::after {
+    content: none;
+    }
+
+    /* Keep a subtle surface without the "everything boxed in borders" feel. */
+    .ro-block {
+    padding: 12px;
+    border-radius: 2px;
+    border: none;
+    background: linear-gradient(180deg, rgba(8, 22, 32, 0.55), rgba(5, 10, 20, 0.35));
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35);
+    }
+
+			    .ro-grid {
+			      margin-top: 12px;
+			      display: grid;
+			      grid-template-columns: 1fr;
+    gap: 12px;
+    }
+
+    .ro-disclosure {
+    display: block;
+    }
+
+    .ro-disclosure > summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 4px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: none;
+    border-bottom: 1px solid rgba(34, 211, 238, 0.10);
+    }
+
+    .ro-disclosure > summary::-webkit-details-marker {
+    display: none;
+    }
+
+    .ro-disclosure-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(34, 211, 238, 0.45);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 50%;
+    }
+
+    .ro-disclosure-caret {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    border-right: 2px solid rgba(34, 211, 238, 0.55);
+    border-bottom: 2px solid rgba(34, 211, 238, 0.55);
+    transform: rotate(-45deg);
+    transition: transform 0.15s ease, opacity 0.15s ease;
+    opacity: 0.8;
+    margin-left: 8px;
+    }
+
+    .ro-disclosure[open] > summary .ro-disclosure-caret {
+    transform: rotate(45deg);
+    opacity: 1;
+    }
+
+    .ro-disclosure-body {
+    margin-top: 12px;
+    }
+
+    .ro-section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: rgba(207, 250, 254, 0.9);
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.18);
+    }
+
+    .ro-hint {
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(34, 211, 238, 0.45);
+    }
+
+    .ro-field {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-top: 10px;
+    }
+
+    .ro-field-label {
+    width: auto;
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(34, 211, 238, 0.55);
+    }
+
+    .ro-field-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    }
+
+    .ro-field-controls > .ro-input {
+    flex: 1 1 240px;
+    min-width: 220px;
+    }
+
+    .ro-input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(34, 211, 238, 0.18);
+    background: rgba(5, 10, 20, 0.72);
+    color: rgba(207, 250, 254, 0.92);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    outline: none;
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    }
+
+    .ro-input::placeholder {
+    color: rgba(34, 211, 238, 0.22);
+    }
+
+    .ro-input:focus {
+    border-color: rgba(34, 211, 238, 0.55);
+    box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35), 0 0 18px rgba(6, 182, 212, 0.18);
+    transform: translateY(-1px);
+    }
+
+    .ro-btn {
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(34, 211, 238, 0.20);
+    background: rgba(7, 16, 27, 0.85);
+    color: rgba(207, 250, 254, 0.92);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    }
+
+	    .ro-btn:hover {
+	    transform: translateY(-1px);
+	    border-color: rgba(34, 211, 238, 0.55);
+	    background: rgba(8, 22, 32, 0.85);
+	    box-shadow: 0 0 14px rgba(6, 182, 212, 0.12);
+	    }
+
+	    .ro-target-row {
+	    display: flex;
+	    gap: 10px;
+	    align-items: center;
+	    flex-wrap: wrap;
+	    margin-top: 10px;
+	    }
+
+	    .ro-target-row > .ro-input {
+	    flex: 1 1 240px;
+	    min-width: 220px;
+	    }
+
+	    .ro-target-row > .ro-input.ro-target-chain {
+	    flex: 0 0 120px;
+	    min-width: 120px;
+	    }
+
+	    .ro-actions {
+	    margin-top: 12px;
+	    display: flex;
+	    align-items: center;
+	    justify-content: flex-end;
+	    gap: 10px;
+	    }
+
+	    .ro-call-btn {
+	    padding: 10px 12px;
+	    border-radius: 4px;
+	    border: 1px solid rgba(34, 211, 238, 0.22);
+	    background: rgba(7, 16, 27, 0.88);
+	    color: rgba(207, 250, 254, 0.92);
+	    font-family: 'JetBrains Mono', monospace;
+	    font-size: 10px;
+	    letter-spacing: 0.22em;
+	    text-transform: uppercase;
+	    white-space: nowrap;
+	    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+	    }
+
+	    .ro-call-btn:hover:not([disabled]) {
+	    transform: translateY(-1px);
+	    border-color: rgba(34, 211, 238, 0.55);
+	    background: rgba(8, 22, 32, 0.88);
+	    box-shadow: 0 0 18px rgba(6, 182, 212, 0.14);
+	    }
+
+	    .ro-call-btn[disabled] {
+	    opacity: 0.45;
+	    cursor: not-allowed;
+	    }
+
+		    .ro-args {
+		    margin-top: 10px;
+		    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 34vh;
+    overflow: auto;
+    padding-right: 10px;
+    scrollbar-gutter: stable;
+    }
+
+    .ro-arg-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(34, 211, 238, 0.10);
+    }
+
+    .ro-arg-row:last-child {
+    border-bottom: none;
+    }
+
+    .ro-arg-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    }
+
+    .ro-arg-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(207, 250, 254, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    }
+
+    .ro-arg-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(148, 163, 184, 0.95);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    }
+
+    .ro-arg-type-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(2, 6, 23, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(148, 163, 184, 0.95);
+    white-space: nowrap;
+    flex: 0 0 auto;
+    }
+
+    .ro-chip-row {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    }
+
+    .ro-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(34, 211, 238, 0.16);
+    background: rgba(5, 10, 20, 0.55);
+    }
+
+    .ro-chip-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(34, 211, 238, 0.55);
+    }
+
+    .ro-chip-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(207, 250, 254, 0.92);
+    }
+
+    .ro-result-meta {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    }
+
+    .ro-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(34, 211, 238, 0.55);
+    }
+
+    .ro-error {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(251, 113, 133, 0.92);
+    white-space: pre-wrap;
+    }
+
+    .ro-result-pre {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(34, 211, 238, 0.14);
+    background: rgba(5, 10, 20, 0.62);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.5;
+    color: rgba(207, 250, 254, 0.92);
+    white-space: pre-wrap;
+    word-break: break-word;
+    }
+
+    .ro-empty {
+    padding: 12px 0 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(148, 163, 184, 0.95);
+    }
 
     @keyframes slideRight {
-      from {
-        transform: translateX(-50px);
-        opacity: 0;
-      }
+    from {
+    transform: translateX(-50px);
+    opacity: 0;
+    }
 
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
+    to {
+    transform: translateX(0);
+    opacity: 1;
+    }
     }
 
     @keyframes slideLeft {
-      from {
-        transform: translateX(50px);
-        opacity: 0;
-      }
+    from {
+    transform: translateX(50px);
+    opacity: 0;
+    }
 
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
+    to {
+    transform: translateX(0);
+    opacity: 1;
+    }
     }
 
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-        filter: blur(10px);
-      }
+    from {
+    opacity: 0;
+    filter: blur(10px);
+    }
 
-      to {
-        opacity: 1;
-        filter: blur(0);
-      }
+    to {
+    opacity: 1;
+    filter: blur(0);
+    }
     }
 
     .animate-slideRight {
-      animation: slideRight 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+    animation: slideRight 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
     }
 
     .animate-slideLeft {
-      animation: slideLeft 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+    animation: slideLeft 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
     }
 
     .animate-fadeIn {
-      animation: fadeIn 0.8s ease-out both;
+    animation: fadeIn 0.8s ease-out both;
     }
 
     ::selection {
-      background: rgba(6, 182, 212, 0.3);
-      color: #fff;
-      text-shadow: 0 0 5px #06b6d4;
+    background: rgba(6, 182, 212, 0.3);
+    color: #fff;
+    text-shadow: 0 0 5px #06b6d4;
     }
 
     .outro-overlay {
-      position: fixed;
-      inset: 0;
-      background: #030511;
-      z-index: 9999;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.5s ease;
+    position: fixed;
+    inset: 0;
+    background: #030511;
+    z-index: 9999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease;
     }
 
     .outro-overlay.fade-in {
-      opacity: 1;
-      pointer-events: all;
+    opacity: 1;
+    pointer-events: all;
     }
 
     /* Syntax Highlighting */
     .token-comment {
-      color: #64748b;
-      font-style: italic;
+    color: #64748b;
+    font-style: italic;
     }
 
     .user-comment-line {
-      background: rgba(20, 14, 4, 0.45);
-      --comment-color: #fbbf24;
-      border-left: 1px solid color-mix(in srgb, var(--comment-color) 60%, transparent);
+    background: rgba(20, 14, 4, 0.45);
+    --comment-color: #fbbf24;
+    border-left: 1px solid color-mix(in srgb, var(--comment-color) 60%, transparent);
     }
 
     .user-comment-line .comment-text {
-      color: var(--comment-color);
-      text-shadow: 0 0 6px color-mix(in srgb, var(--comment-color) 25%, transparent);
+    color: var(--comment-color);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--comment-color) 25%, transparent);
     }
 
 
     .comment-swatches {
-      display: inline-flex;
-      gap: 6px;
-      align-items: center;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
     }
 
     .comment-swatch {
-      width: 12px;
-      height: 12px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
-      cursor: pointer;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
     }
 
     .comment-swatch.is-active {
-      outline: 1px solid #fff3;
-      box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+    outline: 1px solid #fff3;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
     }
 
     .comment-editor {
-      position: fixed;
-      z-index: 9999;
-      display: none;
-      align-items: center;
-      gap: 10px;
-      padding: 6px 10px;
-      border: 1px solid color-mix(in srgb, var(--comment-preview-color, #fbbf24) 55%, transparent);
-      border-radius: 6px;
-      background: rgba(12, 10, 4, 0.92);
-      box-shadow:
-        0 0 20px color-mix(in srgb, var(--comment-preview-color, #fbbf24) 25%, transparent),
-        0 16px 40px rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(6px);
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--comment-preview-color, #fbbf24);
+    position: fixed;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--comment-preview-color, #fbbf24) 55%, transparent);
+    border-radius: 6px;
+    background: rgba(12, 10, 4, 0.92);
+    box-shadow:
+    0 0 20px color-mix(in srgb, var(--comment-preview-color, #fbbf24) 25%, transparent),
+    0 16px 40px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(6px);
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--comment-preview-color, #fbbf24);
     }
 
     .comment-editor.is-visible {
-      display: inline-flex;
+    display: inline-flex;
     }
 
     .comment-editor input {
-      width: 320px;
-      max-width: min(70vw, 360px);
-      background: transparent;
-      border: none;
-      outline: none;
-      color: var(--comment-preview-color, #fbbf24);
-      font-size: 11px;
+    width: 320px;
+    max-width: min(70vw, 360px);
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--comment-preview-color, #fbbf24);
+    font-size: 11px;
     }
 
     .comment-editor .hint {
-      font-size: 9px;
-      color: color-mix(in srgb, var(--comment-preview-color, #fbbf24) 60%, transparent);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      white-space: nowrap;
+    font-size: 9px;
+    color: color-mix(in srgb, var(--comment-preview-color, #fbbf24) 60%, transparent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
     }
 
     .token-string {
-      color: #6ee7b7;
+    color: #6ee7b7;
     }
 
     .token-keyword {
-      color: #c084fc;
-      font-weight: bold;
+    color: #c084fc;
+    font-weight: bold;
     }
 
     .token-type {
-      color: #fbbf24;
+    color: #fbbf24;
     }
 
     .token-modifier {
-      color: #06b6d4;
-      font-weight: 600;
+    color: #06b6d4;
+    font-weight: 600;
     }
 
     .token-number {
-      color: #38bdf8;
+    color: #38bdf8;
     }
 
     .token-operator {
-      color: #94a3b8;
+    color: #94a3b8;
     }
 
     .token-function {
-      color: #06b6d4;
-      font-weight: 600;
+    color: #06b6d4;
+    font-weight: 600;
     }
 
     .function-link {
-      background: none;
-      border: 0;
-      padding: 0;
-      font: inherit;
-      line-height: inherit;
-      text-align: left;
-      cursor: pointer;
-      font-weight: 600;
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    line-height: inherit;
+    text-align: left;
+    cursor: pointer;
+    font-weight: 600;
     }
 
     .function-link:hover {
-      color: #22d3ee;
-      text-decoration: underline;
-      text-underline-offset: 2px;
+    color: #22d3ee;
+    text-decoration: underline;
+    text-underline-offset: 2px;
     }
 
     .function-link:focus,
     .function-link:focus-visible {
-      outline: none;
-      box-shadow: none;
+    outline: none;
+    box-shadow: none;
     }
 
     .token-constant {
-      color: #fb923c;
+    color: #fb923c;
     }
 
     .token-regex {
-      color: #f472b6;
+    color: #f472b6;
     }
 
     .variable-token {
-      position: relative;
-      color: #e2e8f0;
-      transition: color 0.15s ease, text-shadow 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-      cursor: pointer;
+    position: relative;
+    color: #e2e8f0;
+    transition: color 0.15s ease, text-shadow 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    cursor: pointer;
     }
 
     .variable-token.is-active,
     .variable-token.is-locked {
-      color: #e0f2fe;
-      background: linear-gradient(90deg, rgba(6, 182, 212, 0.2), rgba(56, 189, 248, 0.35), rgba(6, 182, 212, 0.2));
-      box-shadow: 0 0 4px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.35);
-      border: 0px solid rgba(34, 211, 238, 0.6);
-      border-radius: 2px;
-      padding: 0px 0px;
+    color: #e0f2fe;
+    background: linear-gradient(90deg, rgba(6, 182, 212, 0.2), rgba(56, 189, 248, 0.35), rgba(6, 182, 212, 0.2));
+    box-shadow: 0 0 4px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.35);
+    border: 0px solid rgba(34, 211, 238, 0.6);
+    border-radius: 2px;
+    padding: 0px 0px;
     }
 
     .variable-token.is-active[data-var-scope="storage"],
     .variable-token.is-locked[data-var-scope="storage"] {
-      color: #fee2e2;
-      background: linear-gradient(90deg, rgba(239, 68, 68, 0.18), rgba(248, 113, 113, 0.32), rgba(239, 68, 68, 0.18));
-      box-shadow: 0 0 4px rgba(239, 68, 68, 0.55), inset 0 0 8px rgba(239, 68, 68, 0.3);
-      border-color: rgba(239, 68, 68, 0.6);
+    color: #fee2e2;
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.18), rgba(248, 113, 113, 0.32), rgba(239, 68, 68, 0.18));
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.55), inset 0 0 8px rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.6);
     }
 
     .variable-token.is-active[data-var-scope="memory"],
     .variable-token.is-locked[data-var-scope="memory"] {
-      color: #dbeafe;
-      background: linear-gradient(90deg, rgba(59, 130, 246, 0.18), rgba(96, 165, 250, 0.32), rgba(59, 130, 246, 0.18));
-      box-shadow: 0 0 4px rgba(59, 130, 246, 0.55), inset 0 0 8px rgba(59, 130, 246, 0.3);
-      border-color: rgba(59, 130, 246, 0.6);
+    color: #dbeafe;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.18), rgba(96, 165, 250, 0.32), rgba(59, 130, 246, 0.18));
+    box-shadow: 0 0 4px rgba(59, 130, 246, 0.55), inset 0 0 8px rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.6);
     }
 
     .variable-token.is-active::after,
     .variable-token.is-locked::after {
-      content: '';
-      position: absolute;
-      left: 0px;
-      right: 0px;
-      bottom: -2px;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.9), transparent);
-      animation: glitch-scan 1.2s ease-in-out infinite alternate;
-      opacity: 0.5;
-      width: 70%;
-      margin-left: 15%;
+    content: '';
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    bottom: -2px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.9), transparent);
+    animation: glitch-scan 1.2s ease-in-out infinite alternate;
+    opacity: 0.5;
+    width: 70%;
+    margin-left: 15%;
     }
-    
-    @keyframes glitch-scan {
-      0% {
-        transform: translateX(-30%);
-        opacity: 0.4;
-      }
 
-      100% {
-        transform: translateX(30%);
-        opacity: 0.4;
-      }
+    @keyframes glitch-scan {
+    0% {
+    transform: translateX(-30%);
+    opacity: 0.4;
+    }
+
+    100% {
+    transform: translateX(30%);
+    opacity: 0.4;
+    }
     }
 
     .variable-token.is-active[data-var-scope="storage"]::after,
     .variable-token.is-locked[data-var-scope="storage"]::after {
-      background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.9), transparent);
+    background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.9), transparent);
     }
 
     .var-tooltip {
-      position: fixed;
-      z-index: 9998;
-      max-width: calc(100vw - 20px);
-      padding: 8px 14px;
-      box-shadow:
-        0 0 0 1px rgba(0, 0, 0, 1),
-        0 20px 50px -12px rgba(0, 0, 0, 0.9),
-        0 0 40px #040812;
-      background: #040812;
-      border-radius: 4px
-      /* Extremely faint ambient glow */
-      color: #cbd5e1;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: calc(var(--code-font-size) - 5px);
-      line-height: 1.6;
-      pointer-events: none;
-      overflow-x: auto;
-      overflow-y: hidden;
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(4px) scale(0.99);
-      transition:
-        opacity 0.1s ease-out,
-        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
-        visibility 0s linear 0.1s;
+    position: fixed;
+    z-index: 9998;
+    max-width: calc(100vw - 20px);
+    padding: 8px 14px;
+    box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 1),
+    0 20px 50px -12px rgba(0, 0, 0, 0.9),
+    0 0 40px #040812;
+    background: #040812;
+    border-radius: 4px
+    /* Extremely faint ambient glow */
+    color: #cbd5e1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: calc(var(--code-font-size) - 5px);
+    line-height: 1.6;
+    pointer-events: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px) scale(0.99);
+    transition:
+    opacity 0.1s ease-out,
+    transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s linear 0.1s;
     }
 
     .var-tooltip.is-visible {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0) scale(1);
-      transition:
-        opacity 0.1s ease-out,
-        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    transition:
+    opacity 0.1s ease-out,
+    transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     .var-tooltip.is-truncated::after {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 55%;
-      background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
-      pointer-events: none;
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 55%;
+    background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
+    pointer-events: none;
     }
 
     .fn-tooltip {
-      position: fixed;
-      z-index: 9997;
-      max-width: calc(100vw - 20px);
-      padding: 8px 14px;
-      box-shadow:
-        0 0 0 1px rgba(0, 0, 0, 1),
-        0 20px 50px -12px rgba(0, 0, 0, 0.9),
-        0 0 40px #040812;
-      background: #040812;
-      color: #cbd5e1;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: calc(var(--code-font-size) - 5px);
-      line-height: 1.6;
-      pointer-events: none;
-      overflow-x: auto;
-      overflow-y: hidden;
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(4px) scale(0.99);
-      transition:
-        opacity 0.1s ease-out,
-        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
-        visibility 0s linear 0.1s;
+    position: fixed;
+    z-index: 9997;
+    max-width: calc(100vw - 20px);
+    padding: 8px 14px;
+    box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 1),
+    0 20px 50px -12px rgba(0, 0, 0, 0.9),
+    0 0 40px #040812;
+    background: #040812;
+    color: #cbd5e1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: calc(var(--code-font-size) - 5px);
+    line-height: 1.6;
+    pointer-events: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px) scale(0.99);
+    transition:
+    opacity 0.1s ease-out,
+    transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s linear 0.1s;
     }
 
     .fn-tooltip.is-visible {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0) scale(1);
-      transition:
-        opacity 0.1s ease-out,
-        transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    transition:
+    opacity 0.1s ease-out,
+    transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     .fn-tooltip.is-truncated::after {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 55%;
-      background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
-      pointer-events: none;
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 55%;
+    background: linear-gradient(to bottom, rgba(4, 8, 18, 0), rgba(4, 8, 18, 0.95));
+    pointer-events: none;
     }
 
     .fn-tooltip-source {
-      position: relative;
+    position: relative;
     }
 
     /* Metadata Row REMOVED */
 
     .var-tooltip-source {
-      position: relative;
+    position: relative;
     }
 
     .var-tooltip-line {
-      display: block;
-      white-space: pre;
-      color: #94a3b8;
-      /* Muted code color by default */
+    display: block;
+    white-space: pre;
+    color: #94a3b8;
+    /* Muted code color by default */
     }
 
     /* Highlight overrides inside tooltip */
     .var-tooltip-line .token-keyword {
-      color: #c084fc;
+    color: #c084fc;
     }
 
     .var-tooltip-line .token-type {
-      color: #f59e0b;
+    color: #f59e0b;
     }
 
     .var-tooltip-line .token-function {
-      color: #22d3ee;
+    color: #22d3ee;
     }
 
     .audit-toggle {
-      width: 18px;
-      height: 18px;
-      border: 1px solid rgba(6, 182, 212, 0.4);
-      background: rgba(6, 12, 22, 0.75);
-      box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.18);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
+    width: 18px;
+    height: 18px;
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    background: rgba(6, 12, 22, 0.75);
+    box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.18);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
     }
 
     .audit-toggle:hover {
-      border-color: rgba(34, 211, 238, 0.7);
-      box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.3), 0 0 6px rgba(6, 182, 212, 0.2);
+    border-color: rgba(34, 211, 238, 0.7);
+    box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.3), 0 0 6px rgba(6, 182, 212, 0.2);
     }
 
     .audit-toggle svg {
-      opacity: 0;
-      transition: opacity 0.2s ease;
+    opacity: 0;
+    transition: opacity 0.2s ease;
     }
 
     .audit-toggle.is-active {
-      display: inline-flex;
-      border-color: rgb(22 78 99 / 0.4);
-      background: rgba(6, 182, 212, 0.18);
-      box-shadow: inset 0 0 1px rgba(6, 182, 212, 0.35), 0 0 45px rgba(6, 182, 212, 0.35);
+    display: inline-flex;
+    border-color: rgb(22 78 99 / 0.4);
+    background: rgba(6, 182, 212, 0.18);
+    box-shadow: inset 0 0 1px rgba(6, 182, 212, 0.35), 0 0 45px rgba(6, 182, 212, 0.35);
     }
 
     .audit-toggle.is-active svg {
-      opacity: 1;
+    opacity: 1;
     }
 
     .node-audit-flag {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(34, 211, 238, 0.35);
-      background: rgba(8, 22, 32, 0.6);
-      color: #7dd3fc;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      font-family: 'Orbitron', sans-serif;
-      text-shadow: 0 0 8px rgba(34, 211, 238, 0.25);
-      opacity: 0;
-      transform: translateY(-2px);
-      transition: opacity 0.2s ease, transform 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(34, 211, 238, 0.35);
+    background: rgba(8, 22, 32, 0.6);
+    color: #7dd3fc;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-family: 'Orbitron', sans-serif;
+    text-shadow: 0 0 8px rgba(34, 211, 238, 0.25);
+    opacity: 0;
+    transform: translateY(-2px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
     }
 
     .node-audit-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: #22d3ee;
-      box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #22d3ee;
+    box-shadow: 0 0 8px rgba(34, 211, 238, 0.5);
     }
 
     .node-audit-marked .node-audit-flag {
-      opacity: 1;
-      transform: translateY(0);
+    opacity: 1;
+    transform: translateY(0);
     }
 
     .code-line {
-      transition: opacity 0.12s ease;
+    transition: opacity 0.12s ease;
     }
 
-    .code-line.line-dimmed {
-      opacity: 0.35;
-    }
+	    .code-line.line-dimmed {
+	    opacity: 0.35;
+	    }
 
-    .review-toggle {
-      width: 18px;
-      height: 18px;
-      border: 1px solid rgba(251, 146, 60, 0.45);
-      background: rgba(20, 10, 4, 0.75);
-      color: #fb923c;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1;
-      transition: all 0.2s ease;
-      text-shadow: 0 0 6px rgba(251, 146, 60, 0.35);
+		    .sender-hint-badge {
+		    display: inline-flex;
+		    align-items: center;
+		    justify-content: center;
+		    width: 18px;
+		    height: 18px;
+		    padding: 0;
+		    border-radius: 2px;
+		    border: 1px solid rgba(148, 163, 184, 0.22);
+		    background: rgba(15, 23, 42, 0.28);
+		    color: rgba(203, 213, 225, 0.88);
+		    opacity: 0.85;
+		    user-select: none;
+		    flex: 0 0 auto;
+		    transition: opacity 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+		    }
+
+		    .sender-hint-badge svg {
+		    width: 12px;
+		    height: 12px;
+		    }
+
+	    .sender-hint-badge:hover,
+	    .sender-hint-badge:focus {
+	    opacity: 1;
+	    transform: translateY(-0.5px);
+	    border-color: rgba(34, 211, 238, 0.55);
+	    box-shadow: 0 0 12px rgba(6, 182, 212, 0.14);
+	    outline: none;
+	    }
+
+		    .sender-hint-badge.is-constrained {
+		    border-color: rgba(16, 185, 129, 0.35);
+		    background: linear-gradient(90deg, rgba(16, 185, 129, 0.14), rgba(6, 182, 212, 0.08));
+		    color: rgba(167, 243, 208, 0.95);
+		    opacity: 0.95;
+		    box-shadow: inset 0 0 10px rgba(16, 185, 129, 0.08);
+		    }
+
+		    .sender-token {
+		    display: inline-block;
+		    padding: 0 4px;
+		    border-radius: 3px;
+		    border: 1px solid rgba(16, 185, 129, 0.35);
+		    background: rgba(16, 185, 129, 0.12);
+		    color: rgba(167, 243, 208, 0.95);
+		    box-shadow: 0 0 10px rgba(16, 185, 129, 0.08);
+		    }
+
+	    .review-toggle {
+	    width: 18px;
+	    height: 18px;
+	    border: 1px solid rgba(251, 146, 60, 0.45);
+    background: rgba(20, 10, 4, 0.75);
+    color: #fb923c;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    transition: all 0.2s ease;
+    text-shadow: 0 0 6px rgba(251, 146, 60, 0.35);
     }
 
     .review-toggle:hover {
-      border-color: rgba(249, 115, 22, 0.7);
-      box-shadow: inset 0 0 8px rgba(249, 115, 22, 0.2), 0 0 6px rgba(249, 115, 22, 0.25);
+    border-color: rgba(249, 115, 22, 0.7);
+    box-shadow: inset 0 0 8px rgba(249, 115, 22, 0.2), 0 0 6px rgba(249, 115, 22, 0.25);
     }
 
     .review-toggle.is-active {
-      display: inline-flex;
-      border-color: rgba(249, 115, 22, 0.6);
-      background: rgba(249, 115, 22, 0.12);
-      box-shadow: inset 0 0 1px rgba(251, 146, 60, 0.35), 0 0 30px rgba(249, 115, 22, 0.3);
+    display: inline-flex;
+    border-color: rgba(249, 115, 22, 0.6);
+    background: rgba(249, 115, 22, 0.12);
+    box-shadow: inset 0 0 1px rgba(251, 146, 60, 0.35), 0 0 30px rgba(249, 115, 22, 0.3);
     }
 
     .node-header {
-      cursor: pointer;
+    cursor: pointer;
     }
 
     .node-header[data-clickable="false"] {
-      cursor: default;
+    cursor: default;
     }
 
     .node-collapsed .node-header .node-header-icon,
     .node-collapsed .node-header .node-header-title {
-      display: none;
+    display: none;
     }
 
     body.step-by-step-active .node-widget .node-header {
-      display: none;
+    display: none;
     }
 
     #main-flow .node-widget {
-      transition: opacity 0.22s ease;
+    transition: opacity 0.22s ease;
     }
 
     #main-flow.dim-functions .node-widget {
-      opacity: 0.3;
+    opacity: 0.3;
     }
 
     #main-flow.dim-functions .node-widget.is-focus {
-      opacity: 1;
+    opacity: 1;
     }
 
     .node-body {
-      display: grid;
-      grid-template-rows: 1fr;
-      transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
 
     .node-body-inner {
-      overflow: hidden;
-      transition: opacity 0.22s ease, transform 0.25s ease;
-      opacity: 1;
-      transform: translateY(0);
+    overflow: hidden;
+    transition: opacity 0.22s ease, transform 0.25s ease;
+    opacity: 1;
+    transform: translateY(0);
     }
 
     .node-collapsed .node-body {
-      grid-template-rows: 0fr;
+    grid-template-rows: 0fr;
     }
 
     .node-collapsed .node-body-inner {
-      opacity: 0;
-      transform: translateY(-6px);
-      pointer-events: none;
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
     }
 
     body.hide-collapsed .node-widget.node-collapsed {
-      display: none;
+    display: none;
     }
   </style>
 </head>
@@ -758,7 +1206,8 @@
     const getContractEntryCount = (name) => {
       const view = CONTRACT_VIEWS?.[name] || {};
       const entries = Array.isArray(view.entries) ? view.entries : [];
-      return entries.length;
+      const readOnly = Array.isArray(view.read_only_entries) ? view.read_only_entries : [];
+      return entries.length + readOnly.length;
     };
     const getSelectableContracts = () => {
       const list = Array.isArray(CONTRACT_LIST) && CONTRACT_LIST.length
@@ -768,6 +1217,7 @@
     };
     let activeContract = DEFAULT_CONTRACT;
     let ENTRY_POINTS_DATA = [];
+    let READ_ONLY_ENTRY_POINTS_DATA = [];
     let STORAGE_VARIABLES = [];
     let TYPE_ALIASES = [];
     let LIBRARIES = [];
@@ -779,11 +1229,14 @@
     let stateReadsByFunction = {};
     let stateWritesByFunction = {};
     let functionBySignature = {};
+    let hydratedWrite = null;
+    let hydratedReadOnly = null;
 
     let deviceGuardEl = null;
     let searchPaletteEl = null;
     let contractPaletteEl = null;
     let hotkeyHelpEl = null;
+    let readOnlyCallEl = null;
     let outroOverlay = null;
     let addressCopyTimeout = null;
     let lastAddressCopyAt = 0;
@@ -824,6 +1277,59 @@
       const inner = signature.slice(openIdx + 1, closeIdx).trim();
       if (!inner) return 0;
       return inner.split(',').map((part) => part.trim()).filter(Boolean).length;
+    };
+
+    const _splitTopLevelArgs = (text = '') => {
+      // Split by commas, but respect nested () and [] (tuples, arrays).
+      const out = [];
+      let buf = '';
+      let paren = 0;
+      let bracket = 0;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '(') paren++;
+        if (ch === ')') paren = Math.max(0, paren - 1);
+        if (ch === '[') bracket++;
+        if (ch === ']') bracket = Math.max(0, bracket - 1);
+        if (ch === ',' && paren === 0 && bracket === 0) {
+          const piece = buf.trim();
+          if (piece) out.push(piece);
+          buf = '';
+          continue;
+        }
+        buf += ch;
+      }
+      const last = buf.trim();
+      if (last) out.push(last);
+      return out;
+    };
+
+    const parseSolidityParamsFromSignature = (signature = '') => {
+      const text = (signature || '').trim();
+      const openIdx = text.indexOf('(');
+      if (openIdx === -1) return [];
+      let closeIdx = -1;
+      let depth = 0;
+      for (let i = openIdx; i < text.length; i++) {
+        const ch = text[i];
+        if (ch === '(') depth++;
+        if (ch === ')') {
+          depth--;
+          if (depth === 0) {
+            closeIdx = i;
+            break;
+          }
+        }
+      }
+      if (closeIdx === -1) return [];
+      const inside = text.slice(openIdx + 1, closeIdx).trim();
+      if (!inside) return [];
+      return _splitTopLevelArgs(inside).map((raw, idx) => {
+        const parts = raw.trim().split(/\\s+/).filter(Boolean);
+        if (!parts.length) return { type: `arg${idx}`, name: null };
+        if (parts.length === 1) return { type: parts[0], name: null };
+        return { type: parts.slice(0, -1).join(' '), name: parts[parts.length - 1] };
+      });
     };
 
     const getCallArityFromLinesGlobal = (lines, lineIndex, fromIndex) => {
@@ -1133,36 +1639,43 @@
       return JSON.stringify(stable);
     };
 
-    const buildDataFromJson = (entries = []) => {
-      const functions = entries.map((entry, idx) => {
-        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
-        const fullName = entry.entry_point || `entry_point_${idx}`;
-        const display = fullName.split('(')[0];
-        const flowHash = hashString(buildFlowSignature(entry));
-        return {
-          id,
-          name: display.split('.').pop() || display,
-          signature: fullName,
-          flowHash,
-          type: /view|pure/i.test(fullName) ? 'read' : 'write',
-          contract: entry.contract || 'Unknown'
-        };
-      });
+		    const buildDataFromJson = (entries = []) => {
+		      const functions = entries.map((entry, idx) => {
+		        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
+		        const fullName = entry.entry_point || `entry_point_${idx}`;
+		        const display = fullName.split('(')[0];
+		        const flowHash = hashString(buildFlowSignature(entry));
+		        return {
+		          id,
+		          name: display.split('.').pop() || display,
+		          signature: fullName,
+		          flowHash,
+		          type: /view|pure/i.test(fullName) ? 'read' : 'write',
+		          contract: entry.contract || 'Unknown',
+		          inputs: Array.isArray(entry?.inputs) ? entry.inputs : [],
+		          outputs: Array.isArray(entry?.outputs) ? entry.outputs : []
+		        };
+		      });
 
       const graphs = {};
       const stateReads = {};
       const stateWrites = {};
       entries.forEach((entry, idx) => {
         const flow = entry.flow || [];
-        const entryReadsMsgSender = Boolean(entry.reads_msg_sender);
+        const entryMsgSenderChecks = Array.isArray(entry?.msg_sender_checks) ? entry.msg_sender_checks : [];
+        const entryMsgSenderRestrictions = Array.isArray(entry?.msg_sender_restrictions) ? entry.msg_sender_restrictions : [];
+        const entryReadsMsgSender = Boolean(entry?.reads_msg_sender);
+        const entryHasMsgSenderConstraint = Boolean(entry?.msg_sender_constrained) || entryMsgSenderChecks.length > 0;
         const entryStateWrites = (entry.state_variables_written || []).map((s) => s.name);
         const functionId = functions[idx]?.id;
         stateReads[functionId] = Array.isArray(entry.state_variables_read) ? entry.state_variables_read : [];
         stateWrites[functionId] = Array.isArray(entry.state_variables_written) ? entry.state_variables_written : [];
         graphs[functionId] = flow.map((step, stepIndex) => {
+          const stepMsgSenderChecks = Array.isArray(step?.msg_sender_checks) ? step.msg_sender_checks : [];
+          const stepHasMsgSenderConstraint = Boolean(step?.msg_sender_constrained) || stepMsgSenderChecks.length > 0;
           const restrictions = (() => {
-            if (stepIndex === 0 && entry.require_assert_statements && entry.require_assert_statements.length) {
-              return entry.require_assert_statements;
+            if (stepIndex === 0 && entryMsgSenderRestrictions.length) {
+              return entryMsgSenderRestrictions;
             }
             if (step.restrictions && step.restrictions.length) return step.restrictions;
             return [];
@@ -1188,7 +1701,9 @@
             type: stepIndex === 0 ? 'entry-point' : 'internal',
             selector: step.selector || '',
             complexity: Number.isFinite(step.cyclomatic_complexity) ? step.cyclomatic_complexity : 1,
-            hasMsgSenderCheck: stepIndex === 0 ? entryReadsMsgSender : false,
+            hasMsgSenderCheck: stepIndex === 0 ? entryHasMsgSenderConstraint : stepHasMsgSenderConstraint,
+            readsMsgSender: stepIndex === 0 ? entryReadsMsgSender : undefined,
+            msgSenderChecks: stepIndex === 0 ? entryMsgSenderChecks : stepMsgSenderChecks,
             modifiedStateVariables: stepIndex === 0 ? entryStateWrites : [],
             variableRecords: Array.isArray(step.variable_records) ? step.variable_records : [],
             variableScopes,
@@ -1254,6 +1769,7 @@
 
     let appState = {
       activeFunctionId: null,
+      entryPointMode: 'write',
       leftCollapsed: false,
       rightCollapsed: true,
       lastAction: 'init',
@@ -1268,6 +1784,21 @@
         query: '',
         selectedIndex: 0,
         results: []
+      },
+      readOnlyCall: {
+        open: false,
+        query: '',
+        selectedIndex: 0,
+        results: [],
+        selectedFnId: null,
+        targetChain: (CONTRACT_CHAIN || '').toString(),
+        targetAddress: (CONTRACT_ADDRESS || '').toString(),
+        args: {},
+        showResult: false,
+        status: '',
+        error: '',
+        lastRawResult: '',
+        lastDecodedResult: null
       },
       storagePanelOpen: false,
       storageSearch: {
@@ -2618,15 +3149,20 @@
                 const callPrefix = line.slice(0, token.start);
                 const isSuperCall = /(?:^|[^a-zA-Z0-9_])super\s*\.\s*$/.test(callPrefix);
                 const isThisCall = /(?:^|[^a-zA-Z0-9_])this\s*\.\s*$/.test(callPrefix);
+                const isMemberAccess = /\.\s*$/.test(callPrefix);
                 const qualifiedMatch = callPrefix.match(/(?:^|[^a-zA-Z0-9_])([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*\.\s*$/);
                 const callContract = qualifiedMatch && qualifiedMatch[1] && qualifiedMatch[1] !== 'super'
                   ? qualifiedMatch[1]
                   : '';
-                const isExternalMember = callContract
-                  && !isSuperCall
-                  && !isThisCall
-                  && !knownContractsLower.has(callContract.toLowerCase());
-                const resolvedKey = resolveFunctionLinkKey(token.text, arity, !isDeclaration && !isExternalMember);
+                const isKnownContract = Boolean(callContract) && knownContractsLower.has(callContract.toLowerCase());
+
+                // Member calls like `reserve.cache()` are often Solidity `using Lib for Type` extension calls.
+                // Those have an "implicit" first argument (the receiver), so their definition arity is `callArity + 1`.
+                const allowDirectLink = !isDeclaration && (!isMemberAccess || isSuperCall || isThisCall || isKnownContract);
+                let resolvedKey = resolveFunctionLinkKey(token.text, arity, allowDirectLink);
+                if (!resolvedKey && !isDeclaration && isMemberAccess && arity !== null) {
+                  resolvedKey = resolveFunctionLinkKey(token.text, arity + 1, true);
+                }
                 if (resolvedKey) {
                   const callMeta = isSuperCall
                     ? ' data-fn-call="super"'
@@ -2978,13 +3514,15 @@
         </div>
     `;
 
-    const iconSvg = (name, className = '') => {
-      const cls = className ? ` class="${className}"` : '';
-      switch (name) {
-        case 'layers':
-          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>`;
-        case 'radical':
-          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M3 12h3.28a1 1 0 0 1 .948.684l2.298 7.934a.5.5 0 0 0 .96-.044L13.82 4.771A1 1 0 0 1 14.792 4H21"/></svg>`;
+	    const iconSvg = (name, className = '') => {
+	      const cls = className ? ` class="${className}"` : '';
+	      switch (name) {
+	        case 'shield':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>`;
+	        case 'layers':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>`;
+	        case 'radical':
+	          return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M3 12h3.28a1 1 0 0 1 .948.684l2.298 7.934a.5.5 0 0 0 .96-.044L13.82 4.771A1 1 0 0 1 14.792 4H21"/></svg>`;
         case 'monitor-smartphone':
           return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${cls}><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/></svg>`;
         case 'database':
@@ -3009,26 +3547,343 @@
       }
     };
 
-    const renderStorageSection = (items = [], emptyIcon, emptyText) => {
-      if (!items.length) {
-        return `
-            <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
-                ${iconSvg(emptyIcon, 'w-4 h-4 text-slate-500')}
-                <span>${emptyText}</span>
-            </div>
-        `;
-      }
+	    const renderStorageSection = (items = [], emptyIcon, emptyText) => {
+	      if (!items.length) {
+	        return `
+	            <div class="p-4 rounded-sm border border-slate-800 bg-slate-900/40 text-[10px] font-mono text-slate-400 flex items-center gap-2">
+	                ${iconSvg(emptyIcon, 'w-4 h-4 text-slate-500')}
+	                <span>${emptyText}</span>
+	            </div>
+	        `;
+	      }
 
-      return items.map((item) => {
-        return isStructType(item.type, item.source) ? renderStructCard(item) : renderScalarRow(item);
-      }).join('');
+	      return items.map((item) => {
+	        return isStructType(item.type, item.source) ? renderStructCard(item) : renderScalarRow(item);
+	      }).join('');
+	    };
+
+	    const asIntOrNull = (value) => {
+	      const n = typeof value === 'number' ? value : parseInt(value, 10);
+	      return Number.isFinite(n) ? n : null;
+	    };
+
+	    const shortenFilename = (filename = '') => {
+	      const raw = (filename || '').toString().trim();
+	      if (!raw) return '<unknown>';
+	      const normalized = raw.replace(/\\/g, '/');
+	      const parts = normalized.split('/').filter(Boolean);
+	      if (parts.length <= 2) return parts.join('/');
+	      return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+	    };
+
+	    const fmtSourceLocation = (loc) => {
+	      if (!loc || typeof loc !== 'object') return '<unknown>';
+	      const file = shortenFilename(loc.filename || '');
+	      const start = asIntOrNull(loc.start_line);
+	      const end = asIntOrNull(loc.end_line);
+	      if (start !== null && end !== null && start !== end) return `${file}:L${start}-L${end}`;
+	      if (start !== null) return `${file}:L${start}`;
+	      return file || '<unknown>';
+	    };
+
+    const takeFirstLines = (source = '', maxLines = 3) => {
+      const text = (source || '').toString();
+      if (!text) return '';
+
+      // Collapse multiple spaces/tabs into one space
+      const normalized = text.replace(/[ \t]+/g, ' ').trim();
+
+      const lines = normalized.split('\n');
+
+      return `${lines.slice(0, maxLines).join('')} ...`;
     };
 
-    const buildMarkdownReport = (fnId) => {
-      const fn = functionList.find((f) => f.id === fnId);
-      const graph = callGraphs[fnId] || [];
-      const reads = stateReadsByFunction[fnId] || [];
-      const writes = stateWritesByFunction[fnId] || [];
+    const escapeAndHighlight = (text = '') => {
+      const src = (text || '').toString();
+      if (!src) return '';
+      const lines = src.split('\n');
+      const highlighted = lines.map((line) => highlightSnippetLine(line)).join('\n');
+      // Preserve newlines in inline contexts (e.g. inside explanatory text).
+      return `<span class="whitespace-pre-wrap font-bold">${highlighted}</span>`;
+    };
+
+	    const senderKindMeta = (kindRaw = '') => {
+	      const kind = (kindRaw || '').toString();
+	      switch (kind) {
+	        case 'require':
+	          return { label: 'REQUIRE', accent: 'emerald' };
+	        case 'assert':
+	          return { label: 'ASSERT', accent: 'rose' };
+	        case 'if_revert':
+	          return { label: 'IF-REVERT', accent: 'amber' };
+	        case 'external_call_sender_arg':
+	          return { label: 'EXTERNAL', accent: 'sky' };
+	        default:
+	          return { label: (kind || 'CHECK').toUpperCase(), accent: 'slate' };
+	      }
+	    };
+
+		    const summarizeSenderChecks = (checks = []) => {
+		      const out = {
+		        total: 0,
+		        require: 0,
+		        assert: 0,
+		        if_revert: 0,
+		        external_call_sender_arg: 0,
+		        other: 0
+		      };
+		      if (!Array.isArray(checks)) return out;
+		      out.total = checks.length;
+		      checks.forEach((chk) => {
+		        const kind = (chk?.kind || '').toString();
+		        if (kind === 'require') out.require += 1;
+		        else if (kind === 'assert') out.assert += 1;
+		        else if (kind === 'if_revert') out.if_revert += 1;
+		        else if (kind === 'external_call_sender_arg') out.external_call_sender_arg += 1;
+		        else out.other += 1;
+		      });
+		      return out;
+		    };
+
+		    const mergeSenderChecks = (checks = []) => {
+		      // Dedupe common patterns like:
+		      // - require(aclManager.isPoolAdmin(msg.sender), ...)  [require]
+		      // - require(aclManager.isPoolAdmin(msg.sender), ...)  [external_call_sender_arg]
+		      //
+		      // In that case, we render a single "external guard" line for the require.
+		      if (!Array.isArray(checks) || !checks.length) return [];
+		      const pickGuard = (arr) => {
+		        const byKind = (k) => arr.find((x) => (x?.kind || '') === k);
+		        return byKind('require') || byKind('assert') || byKind('if_revert') || arr[0];
+		      };
+		      const keyFor = (chk) => {
+		        const callable = (chk?.callable || '').toString();
+		        const callableKind = (chk?.callable_kind || '').toString();
+		        const src = (chk?.source || '').toString().trim();
+		        const loc = chk?.location || {};
+		        const filename = (loc?.filename || '').toString();
+		        const start = Number.isFinite(loc?.start_line) ? loc.start_line : '';
+		        // Source text is the best signal, location prevents cross-site accidental merges.
+		        return `${callableKind}||${callable}||${filename}||${start}||${src}`;
+		      };
+		      const groups = new Map();
+		      checks.forEach((chk) => {
+		        const key = keyFor(chk);
+		        const list = groups.get(key) || [];
+		        list.push(chk);
+		        groups.set(key, list);
+		      });
+		      const merged = [];
+		      groups.forEach((group) => {
+		        const kinds = new Set(group.map((x) => (x?.kind || '').toString()));
+		        const hasExternal = kinds.has('external_call_sender_arg');
+		        const hasGuard = kinds.has('require') || kinds.has('assert') || kinds.has('if_revert');
+		        const rep = pickGuard(group);
+		        merged.push({
+		          ...rep,
+		          has_external_guard: Boolean(hasExternal && hasGuard),
+		          // If we only saw external_call_sender_arg (no explicit guard kind), preserve it.
+		          kind: hasGuard ? (rep?.kind || 'require') : 'external_call_sender_arg',
+		        });
+		      });
+		      return merged;
+		    };
+
+			    const buildStateVarIndexByName = () => {
+			      const index = new Map();
+			      (Array.isArray(STORAGE_VARIABLES) ? STORAGE_VARIABLES : []).forEach((v) => {
+			        if (!v) return;
+		        const name = (v.name || '').toString().trim();
+		        if (!name) return;
+		        if (!index.has(name)) index.set(name, v);
+		      });
+		      return index;
+		    };
+
+		    const describeStateVar = (name, varIndex) => {
+		      const record = varIndex?.get?.(name);
+		      if (!record) return null;
+		      const isConst = Boolean(record.is_constant);
+		      const isImm = Boolean(record.is_immutable);
+		      if (isConst) return `constant \`${escapeHtmlGlobal(name)}\``;
+		      if (isImm) return `immutable state variable \`${escapeHtmlGlobal(name)}\``;
+		      return `state variable \`${escapeHtmlGlobal(name)}\``;
+		    };
+
+			    const parseMsgSenderComparison = (source = '') => {
+			      const s = (source || '').toString();
+			      // Basic patterns. If we can't match, we fall back to a generic explanation.
+			      // Note: don't truncate member/index expressions like `_reserves[asset].aTokenAddress`.
+			      const baseIdent = (expr = '') => {
+			        const m = (expr || '').toString().trim().match(/^[_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF]*/);
+			        return m ? m[0] : '';
+			      };
+			      const parseForwardExpr = (text, startIdx) => {
+			        let i = startIdx;
+			        while (i < text.length && /\s/.test(text[i])) i += 1;
+			        const begin = i;
+			        let depthParen = 0;
+			        let depthBracket = 0;
+			        let depthBrace = 0;
+			        let inSingle = false;
+			        let inDouble = false;
+			        let inTemplate = false;
+			        let escape = false;
+			        for (; i < text.length; i += 1) {
+			          const ch = text[i];
+			          if (escape) {
+			            escape = false;
+			            continue;
+			          }
+			          if (inSingle) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === "'") inSingle = false;
+			            continue;
+			          }
+			          if (inDouble) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === '"') inDouble = false;
+			            continue;
+			          }
+			          if (inTemplate) {
+			            if (ch === "\\\\") escape = true;
+			            else if (ch === '`') inTemplate = false;
+			            continue;
+			          }
+			          if (ch === "'") {
+			            inSingle = true;
+			            continue;
+			          }
+			          if (ch === '"') {
+			            inDouble = true;
+			            continue;
+			          }
+			          if (ch === '`') {
+			            inTemplate = true;
+			            continue;
+			          }
+			          if (ch === '(') depthParen += 1;
+			          else if (ch === ')') {
+			            if (depthParen > 0) depthParen -= 1;
+			            else break; // end of surrounding call/require
+			          } else if (ch === '[') depthBracket += 1;
+			          else if (ch === ']') depthBracket = Math.max(0, depthBracket - 1);
+			          else if (ch === '{') depthBrace += 1;
+			          else if (ch === '}') depthBrace = Math.max(0, depthBrace - 1);
+
+			          if (depthParen === 0 && depthBracket === 0 && depthBrace === 0) {
+			            if (ch === ',' || ch === ';' || ch === '\n') break;
+			          }
+			        }
+			        return text.slice(begin, i).trim();
+			      };
+
+			      const re = /\bmsg\.sender\b\s*([!=]=)\s*/g;
+			      const m = re.exec(s);
+			      if (m && m.index != null) {
+			        const op = m[1];
+			        const rhsStart = m.index + m[0].length;
+			        const otherExpr = parseForwardExpr(s, rhsStart);
+			        if (otherExpr) return { op, otherExpr, otherBase: baseIdent(otherExpr) };
+			      }
+
+			      // Flipped: `<expr> == msg.sender`. Keep it best-effort.
+			      const flipped = s.match(/([_$a-zA-Z\xA0-\uFFFF][$\w\xA0-\uFFFF\.\[\]]*)\s*([!=]=)\s*\bmsg\.sender\b/);
+			      if (flipped) return { op: flipped[2], otherExpr: flipped[1], otherBase: baseIdent(flipped[1]) };
+			      return null;
+			    };
+
+			    const renderSenderInfoMarkup = (node) => {
+			      if (!node) return '';
+			      const rawChecks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
+			      const checks = mergeSenderChecks(rawChecks);
+			      const reads = Boolean(node?.readsMsgSender);
+			      const summary = summarizeSenderChecks(checks);
+			      const varIndex = buildStateVarIndexByName();
+
+			      const explainSenderCheck = (chk) => {
+			        const kind = (chk?.kind || '').toString();
+			        const callable = (chk?.callable || '<unknown>').toString();
+			        const callableKind = (chk?.callable_kind || '').toString() || 'callable';
+			        const src = (chk?.source || '').toString().trim();
+
+				        const prefix = `In ${callableKind} ${iconSvg('code', 'w-3 h-3 text-green-600 animate-pulse inline-flex')} <div class="text-green-600 font-mono flex items-center font-bold mt-[1px] inline-flex">${escapeHtmlGlobal(callable)}</div>`;
+				        const cmp = parseMsgSenderComparison(src);
+				        if (cmp) {
+				          const otherExprRaw = (cmp.otherExpr || '').toString().trim();
+				          const otherBase = (cmp.otherBase || '').toString().trim();
+				          const otherBaseShort = otherBase ? otherBase.split('.').pop() : '';
+				          const baseDesc = otherBaseShort ? describeStateVar(otherBaseShort, varIndex) : null;
+				          const otherExprEscaped = escapeHtmlGlobal(otherExprRaw || otherBaseShort || '');
+				          const otherDesc = otherExprRaw
+				            ? `\`${otherExprEscaped}\`${baseDesc && otherExprRaw !== otherBaseShort ? ` (from ${baseDesc})` : ''}`
+				            : (baseDesc || `\`${escapeHtmlGlobal(otherBaseShort)}\``);
+				          return `${prefix}, <span class="sender-token">msg.sender</span> is compared to ${otherDesc}`;
+				        }
+
+			        if (kind === 'external_call_sender_arg') {
+			          return `${prefix}, an external call uses <span class="sender-token">msg.sender</span> as an argument.${src ? ` (\`${escapeAndHighlight(takeFirstLines(src, 1))}\`)` : ''}`;
+			        }
+
+			        if (src) {
+			          if (chk?.has_external_guard) {
+			            return `${prefix}, there is an external guard: \`${escapeAndHighlight(takeFirstLines(src, 2))}\``;
+			          }
+			          return `${prefix}, there is a <span class="sender-token">msg.sender</span> guard: \`${escapeAndHighlight(takeFirstLines(src, 2))}\``;
+			        }
+
+			        return `${prefix}, a <span class="sender-token">msg.sender</span> dependent revert guard was detected.`;
+			      };
+
+		      const maxChecks = 24;
+		      const shownChecks = summary.total ? checks.slice(0, maxChecks) : [];
+			      const listMarkup = summary.total
+			        ? `
+	              ${shownChecks.map((chk) => `
+	                  <div class="text-[10px] font-mono text-slate-200 leading-relaxed">${explainSenderCheck(chk)}</div>
+	              `).join('')}
+	              ${checks.length > maxChecks ? `<div class="text-[9px] font-mono text-slate-500 uppercase tracking-[0.18em]">+ ${checks.length - maxChecks} more</div>` : ''}
+			        `
+			        : (reads ? `
+			          <div class="text-[10px] font-mono text-slate-300">
+			            This entry point reads "msg.sender", but no sender-dependent revert guards were detected in the flow.
+			          </div>
+			        ` : `
+			          <div class="text-[10px] font-mono text-slate-300">
+			            No sender-dependent information was detected in this entry-point flow.
+			          </div>
+			        `);
+
+			      return listMarkup;
+			    };
+
+		    const getEntryNodeForFunctionId = (fnId) => {
+		      if (!fnId) return null;
+		      const graph = callGraphs?.[fnId];
+	      if (!Array.isArray(graph) || !graph.length) return null;
+	      return graph[0] || null;
+		    };
+
+			    const renderSenderHintBadge = (fnId) => {
+			      const node = getEntryNodeForFunctionId(fnId);
+			      const checks = Array.isArray(node?.msgSenderChecks) ? node.msgSenderChecks : [];
+			      const count = checks.length;
+			      const reads = Boolean(node?.readsMsgSender);
+			      if (!count && !reads) return '';
+			      const cls = count ? 'sender-hint-badge is-constrained' : 'sender-hint-badge';
+			      const safeFnId = escapeHtmlGlobal(fnId || '');
+			      return `
+			        <div class="${cls}" data-sender-fn-id="${safeFnId}" title="">
+			          ${iconSvg('shield')}
+			        </div>
+			      `;
+			    };
+
+		    const buildMarkdownReport = (fnId) => {
+		      const fn = functionList.find((f) => f.id === fnId);
+		      const graph = callGraphs[fnId] || [];
+	      const reads = stateReadsByFunction[fnId] || [];
+	      const writes = stateWritesByFunction[fnId] || [];
       const esc = (text = '') => String(text).replace(/```/g, '\\`\\`\\`');
       const mdLines = [];
 
@@ -3149,14 +4004,12 @@
                     </div>
                     ${auditFlagMarkup}
                 </div>
-                <div class="node-body space-y-6">
-                  <div class="node-body-inner space-y-6">
-
-                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords, node.id)}
-
-                  </div>
-                </div>
-            `;
+		                <div class="node-body space-y-6">
+		                  <div class="node-body-inner space-y-6">
+		                    ${renderCodeBlock(node.code, functionInfo, node.variableScopes, node.variableRecords, node.id)}
+		                  </div>
+		                </div>
+		            `;
 
       return `
                 <div class="node-widget relative pb-4 last:pb-0 ${collapsed ? 'node-collapsed' : ''} ${auditedCollapsed ? 'node-audit-marked' : ''} ${animate ? 'animate-fadeIn' : ''}" style="${animate ? `animation-delay: ${index * 0.2}s` : ''}" data-node-id="${node.id}" data-node-depth="${node.depth}" data-node-contract="${escapeHtmlGlobal(node.contractName || '')}" data-collapse-key="${collapseKey}" data-function-key="${functionKey}" data-function-name="${nameKey}">
@@ -3182,50 +4035,56 @@
       }, 1000);
     };
 
-    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
-      if (!key) return null;
-      const mainFlow = document.getElementById('main-flow');
-      if (!mainFlow) return null;
-      let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
-      if (!targets.length && !key.includes(':')) {
-        targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
-      }
-      if (!targets.length) return null;
-      let target = targets[0];
-      const pickNextByDepth = (candidates, originDepth) => {
-        if (!Number.isFinite(originDepth)) return candidates[0];
-        const ordered = candidates
-          .map((el) => ({ el, depth: Number(el.getAttribute('data-node-depth')) }))
-          .filter((item) => Number.isFinite(item.depth))
-          .sort((a, b) => a.depth - b.depth);
-        if (!ordered.length) return candidates[0];
-        const next = ordered.find((item) => item.depth > originDepth);
-        return next ? next.el : ordered[0].el;
-      };
-      if (originNodeId) {
-        const originEl = mainFlow.querySelector(`[data-node-id="${originNodeId}"]`);
-        const filtered = targets.filter((el) => el.getAttribute('data-node-id') !== originNodeId);
-        if (filtered.length) targets = filtered;
-        if (originEl) {
-          const originDepth = Number(originEl.getAttribute('data-node-depth'));
-          const originContractName = originContract || originEl.getAttribute('data-node-contract') || '';
-          let preferredTargets = targets;
-          if (callContract) {
-            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === callContract);
-            if (byContract.length) preferredTargets = byContract;
-          } else if (callKind === 'super') {
-            if (originContractName) {
-              const byContract = targets.filter((el) => el.getAttribute('data-node-contract') !== originContractName);
-              if (byContract.length) preferredTargets = byContract;
-            }
-          }
-          target = pickNextByDepth(preferredTargets, originDepth);
-        } else {
-          target = targets[0];
-        }
-      }
-      return target;
-    };
+	    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
+	      if (!key) return null;
+	      const mainFlow = document.getElementById('main-flow');
+	      if (!mainFlow) return null;
+	      let targets = Array.from(mainFlow.querySelectorAll(`[data-function-key="${key}"]`));
+	      if (!targets.length && !key.includes(':')) {
+	        targets = Array.from(mainFlow.querySelectorAll(`[data-function-name="${key}"]`));
+	      }
+	      if (!targets.length) return null;
+	      let target = targets[0];
+	      const pickNextByDepth = (candidates, originDepth) => {
+	        if (!Number.isFinite(originDepth)) return candidates[0];
+	        const ordered = candidates
+	          .map((el) => ({ el, depth: Number(el.getAttribute('data-node-depth')) }))
+	          .filter((item) => Number.isFinite(item.depth))
+	          .sort((a, b) => a.depth - b.depth);
+	        if (!ordered.length) return candidates[0];
+	        const next = ordered.find((item) => item.depth > originDepth);
+	        return next ? next.el : ordered[0].el;
+	      };
+	      if (originNodeId) {
+	        const originEl = mainFlow.querySelector(`[data-node-id="${originNodeId}"]`);
+	        const filtered = targets.filter((el) => el.getAttribute('data-node-id') !== originNodeId);
+	        if (filtered.length) targets = filtered;
+	        if (originEl) {
+	          const originDepth = Number(originEl.getAttribute('data-node-depth'));
+	          const originContractName = originContract || originEl.getAttribute('data-node-contract') || '';
+	          let preferredTargets = targets;
+	          if (callContract) {
+	            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === callContract);
+	            if (byContract.length) preferredTargets = byContract;
+	          } else if (callKind === 'super') {
+	            if (originContractName) {
+	              const byContract = targets.filter((el) => el.getAttribute('data-node-contract') !== originContractName);
+	              if (byContract.length) preferredTargets = byContract;
+	            }
+	          } else if (activeContract) {
+	            // Solidity virtual dispatch: unqualified internal calls from inherited code
+	            // (e.g. base `transfer()` calling `_transfer()`) resolve to the most-derived
+	            // override on the runtime contract (the active contract view).
+	            const byContract = targets.filter((el) => el.getAttribute('data-node-contract') === activeContract);
+	            if (byContract.length) preferredTargets = byContract;
+	          }
+	          target = pickNextByDepth(preferredTargets, originDepth);
+	        } else {
+	          target = targets[0];
+	        }
+	      }
+	      return target;
+	    };
 
     const scrollFlowToFunctionKey = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
       const target = resolveFlowTargetElement(key, originNodeId, originContract, callKind, callContract);
@@ -3341,7 +4200,7 @@
 
       const title = btn.querySelector('[data-role="fn-title"]');
       if (title) {
-        title.className = `font-display text-xs font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
+        title.className = `font-display text-xs truncate font-bold tracking-wide transition-colors ${isActive ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}`;
       }
     };
 
@@ -3490,6 +4349,20 @@
       hideFnTooltip();
     });
 
+    document.addEventListener('mouseover', (event) => {
+      const badgeEl = event.target.closest('.sender-hint-badge');
+      if (!badgeEl) return;
+      showSenderTooltip(badgeEl);
+    });
+
+    document.addEventListener('mouseout', (event) => {
+      const badgeEl = event.target.closest('.sender-hint-badge');
+      if (!badgeEl) return;
+      const related = event.relatedTarget?.closest('.sender-hint-badge');
+      if (related) return;
+      hideSenderTooltip();
+    });
+
     document.addEventListener('click', (event) => {
       const tokenEl = event.target.closest('.variable-token');
       if (!tokenEl) return;
@@ -3584,15 +4457,15 @@
       setTimeout(doRedirect, 800);
     };
 
-    const toggleSidebar = (side) => {
-      if (side === 'left') {
-        appState.leftCollapsed = !appState.leftCollapsed;
-        appState.lastAction = 'toggle-left';
-      }
-      if (side === 'right') {
-        if (appState.storagePanelOpen) {
-          closeStoragePanel();
-        }
+	    const toggleSidebar = (side) => {
+	      if (side === 'left') {
+	        appState.leftCollapsed = !appState.leftCollapsed;
+	        appState.lastAction = 'toggle-left';
+	      }
+	      if (side === 'right') {
+	        if (appState.storagePanelOpen) {
+	          closeStoragePanel();
+	        }
         appState.rightCollapsed = !appState.rightCollapsed;
         appState.lastAction = 'toggle-right';
         if (!appState.rightCollapsed) {
@@ -3621,7 +4494,67 @@
       }
     };
 
+    const setActiveEntryPointMode = (mode) => {
+      const next = mode === 'read_only' ? 'read_only' : 'write';
+      appState.entryPointMode = next;
+
+      const hydrated = next === 'read_only' ? hydratedReadOnly : hydratedWrite;
+      functionList = hydrated?.functions || [];
+      callGraphs = hydrated?.callGraphs || {};
+      stateReadsByFunction = hydrated?.stateReads || {};
+      stateWritesByFunction = hydrated?.stateWrites || {};
+
+      functionBySignature = functionList.reduce((acc, fn) => {
+        acc[fn.signature] = fn;
+        return acc;
+      }, {});
+      appState.activeFunctionId = functionList[0]?.id || null;
+
+      // Collapse state is keyed by node and entry id. When switching datasets, clear and re-apply defaults.
+      clearCollapsedNodes();
+      collapseKeyCache.clear();
+      if (appState.stepByStepEnabled) {
+        applyStepByStepDefaults(hydrated);
+      } else {
+        loadCollapsedNodes();
+        loadHideCollapsed();
+      }
+    };
+
+    const toggleLeftPanelForMode = (mode) => {
+      const targetMode = mode === 'read_only' ? 'read_only' : 'write';
+      const wasCollapsed = appState.leftCollapsed;
+      const wasMode = appState.entryPointMode;
+      closeSearchPalette();
+
+      // For the same dataset, behave like a pure visibility toggle.
+      // This preserves the currently selected entry point when reopening.
+      if (wasMode === targetMode) {
+        toggleSidebar('left');
+        return;
+      }
+
+      // Otherwise ensure the panel is visible and showing the requested dataset.
+      appState.leftCollapsed = false;
+      appState.lastAction = targetMode === 'read_only' ? 'show-left-readonly' : 'show-left-write';
+      setActiveEntryPointMode(targetMode);
+
+      // Only refresh the UI if we actually changed dataset or were previously collapsed.
+      if (wasCollapsed || wasMode !== targetMode) {
+        sourceIndexCache.clear();
+        activeLineKey = null;
+        refreshLeftSidebar();
+        refreshMainFlow();
+        refreshRightSidebar(true);
+      } else {
+        applySidebarVisibility();
+      }
+    };
+
     let scrollCooldown = false;
+    let readOnlyCallOpenedAt = 0;
+    let readOnlyNavLastAt = 0;
+    let searchNavLastAt = 0;
     const scrollMain = (delta) => {
       if (scrollCooldown) return;
       scrollCooldown = true;
@@ -3742,6 +4675,7 @@
 
     let varTooltipEl = null;
     let fnTooltipEl = null;
+    let senderTooltipEl = null;
     let functionSourceIndex = new Map();
     let nodeSourceIndex = new Map();
     const sourceIndexCache = new Map();
@@ -3763,6 +4697,7 @@
       activeContract = name;
       const view = CONTRACT_VIEWS[name] || {};
       ENTRY_POINTS_DATA = Array.isArray(view.entries) ? view.entries : [];
+      READ_ONLY_ENTRY_POINTS_DATA = Array.isArray(view.read_only_entries) ? view.read_only_entries : [];
       STORAGE_VARIABLES = Array.isArray(view.storage_variables) ? view.storage_variables : [];
       TYPE_ALIASES = Array.isArray(view.type_aliases) ? view.type_aliases : [];
       LIBRARIES = Array.isArray(view.libraries) ? view.libraries : [];
@@ -3771,17 +4706,19 @@
       STORAGE_WRITERS_INDEX = view.storage_writers_index || {};
       rebuildContractIndexes();
 
-      const hydrated = buildDataFromJson(ENTRY_POINTS_DATA);
-      functionList = hydrated.functions;
-      callGraphs = hydrated.callGraphs;
-      stateReadsByFunction = hydrated.stateReads;
-      stateWritesByFunction = hydrated.stateWrites;
-      applyStepByStepDefaults(hydrated);
-      functionBySignature = functionList.reduce((acc, fn) => {
-        acc[fn.signature] = fn;
-        return acc;
-      }, {});
-      appState.activeFunctionId = functionList[0]?.id || null;
+      hydratedWrite = buildDataFromJson(ENTRY_POINTS_DATA);
+      hydratedReadOnly = buildDataFromJson(READ_ONLY_ENTRY_POINTS_DATA);
+      // If the preferred dataset is empty but the other isn't, auto-switch so the user sees content.
+      const preferred = appState.entryPointMode || 'write';
+      const writeCount = hydratedWrite?.functions?.length || 0;
+      const readOnlyCount = hydratedReadOnly?.functions?.length || 0;
+      if (preferred === 'write' && !writeCount && readOnlyCount) {
+        setActiveEntryPointMode('read_only');
+      } else if (preferred === 'read_only' && !readOnlyCount && writeCount) {
+        setActiveEntryPointMode('write');
+      } else {
+        setActiveEntryPointMode(preferred);
+      }
 
       if (!initial) {
         appState.search = { open: false, query: '', selectedIndex: 0, results: [] };
@@ -3878,6 +4815,19 @@
       `;
       document.body.appendChild(fnTooltipEl);
       return fnTooltipEl;
+    };
+
+    const ensureSenderTooltip = () => {
+      if (senderTooltipEl) return senderTooltipEl;
+      senderTooltipEl = document.createElement('div');
+      senderTooltipEl.id = 'sender-tooltip';
+      senderTooltipEl.className = 'var-tooltip';
+      senderTooltipEl.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="var-tooltip-source" data-role="source"></div>
+      `;
+      document.body.appendChild(senderTooltipEl);
+      return senderTooltipEl;
     };
 
     const resolveTypeAliasRecord = (varName, tokenEl) => {
@@ -4046,6 +4996,37 @@
       fnTooltipEl.classList.remove('is-visible');
     };
 
+    const showSenderTooltip = (badgeEl) => {
+      const fnId = badgeEl?.getAttribute?.('data-sender-fn-id') || '';
+      if (!fnId) {
+        hideSenderTooltip();
+        return;
+      }
+      const node = getEntryNodeForFunctionId(fnId);
+      const infoMarkup = renderSenderInfoMarkup(node);
+      if (!infoMarkup) {
+        hideSenderTooltip();
+        return;
+      }
+      hideVarTooltip();
+      hideFnTooltip();
+      const tooltip = ensureSenderTooltip();
+      tooltip.innerHTML = `
+        <div class="absolute inset-0 border border-cyan-900/30 pointer-events-none z-10"></div>
+        <div class="var-tooltip-source" data-role="source">
+          ${infoMarkup}
+        </div>
+      `;
+      tooltip.classList.remove('is-truncated');
+      tooltip.classList.add('is-visible');
+      positionVarTooltip(badgeEl, tooltip);
+    };
+
+    const hideSenderTooltip = () => {
+      if (!senderTooltipEl) return;
+      senderTooltipEl.classList.remove('is-visible');
+    };
+
     const updateStorageSearchResults = () => {
       const resultsEl = document.getElementById('storage-search-results');
       if (!resultsEl) return;
@@ -4182,38 +5163,29 @@
       updateStorageWriters();
     };
 
-    const attachOverlayOutsideClose = (overlayEl, panelSelector, closeFn) => {
-      if (!overlayEl || overlayEl._outsideCloseAttached) return;
-      overlayEl._outsideCloseAttached = true;
-      overlayEl.addEventListener('mousedown', (event) => {
-        if (event.target.closest(panelSelector)) return;
-        closeFn();
-      });
-    };
+	    const attachOverlayOutsideClose = (overlayEl, panelSelector, closeFn) => {
+	      if (!overlayEl || overlayEl._outsideCloseAttached) return;
+	      overlayEl._outsideCloseAttached = true;
+	      overlayEl.addEventListener('mousedown', (event) => {
+	        if (event.target.closest(panelSelector)) return;
+	        closeFn();
+	      });
+	    };
 
-    const ensureSearchPalette = () => {
-      if (searchPaletteEl) return searchPaletteEl;
-      searchPaletteEl = document.createElement('div');
-      searchPaletteEl.id = 'search-palette';
-      searchPaletteEl.className = 'fixed inset-0 z-50 hidden';
-      searchPaletteEl.innerHTML = `
-        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
-        <div class="absolute inset-0 pointer-events-none opacity-50">
-          <svg class="w-full h-full">
-            <defs>
-              <pattern id="popup-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#popup-grid)" />
-          </svg>
-        </div>
-        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
-          <div class="relative w-full max-w-3xl">
-            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden search-panel">
-              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
-                <div id="search-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
+	    const ensureSearchPalette = () => {
+	      if (searchPaletteEl) return searchPaletteEl;
+	      searchPaletteEl = document.createElement('div');
+	      searchPaletteEl.id = 'search-palette';
+	      searchPaletteEl.className = 'fixed inset-0 z-50 hidden popup-overlay';
+	      searchPaletteEl.innerHTML = `
+	        <div class="popup-overlay-bg"></div>
+	        <div class="popup-overlay-grid"></div>
+	        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
+	          <div class="relative w-full max-w-3xl">
+	            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+	            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden search-panel">
+	              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
+	                <div id="search-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
                 <input id="search-input" type="text" autocomplete="off" placeholder=""
                   class="flex-1 bg-transparent outline-none text-cyan-200 placeholder:text-cyan-800 font-display text-sm caret-transparent font-bold tracking-wide text-glow" />
               </div>
@@ -4238,12 +5210,18 @@
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           e.stopPropagation();
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          if (searchNavLastAt && (now - searchNavLastAt) < 100) return;
+          searchNavLastAt = now;
           const max = appState.search.results.length;
           if (max) appState.search.selectedIndex = (appState.search.selectedIndex + 1) % max;
           updateSearchHighlight();
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
           e.stopPropagation();
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          if (searchNavLastAt && (now - searchNavLastAt) < 100) return;
+          searchNavLastAt = now;
           const max = appState.search.results.length;
           if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
           updateSearchHighlight();
@@ -4261,29 +5239,20 @@
       return searchPaletteEl;
     };
 
-    const ensureContractPalette = () => {
-      if (contractPaletteEl) return contractPaletteEl;
-      contractPaletteEl = document.createElement('div');
-      contractPaletteEl.id = 'contract-palette';
-      contractPaletteEl.className = 'fixed inset-0 z-50 hidden';
-      contractPaletteEl.innerHTML = `
-        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
-        <div class="absolute inset-0 pointer-events-none opacity-50">
-          <svg class="w-full h-full">
-            <defs>
-              <pattern id="contract-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#contract-grid)" />
-          </svg>
-        </div>
-        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
-          <div class="relative w-full max-w-3xl">
-            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden contract-panel">
-              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
-                <div id="contract-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
+	    const ensureContractPalette = () => {
+	      if (contractPaletteEl) return contractPaletteEl;
+	      contractPaletteEl = document.createElement('div');
+	      contractPaletteEl.id = 'contract-palette';
+	      contractPaletteEl.className = 'fixed inset-0 z-50 hidden popup-overlay';
+	      contractPaletteEl.innerHTML = `
+	        <div class="popup-overlay-bg"></div>
+	        <div class="popup-overlay-grid"></div>
+	        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8 overflow-y-auto">
+	          <div class="relative w-full max-w-3xl">
+	            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+	            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden contract-panel">
+	              <div class="flex items-center gap-3 px-4 py-3 border-t border-cyan-900/40 bg-cyan-950/30">
+	                <div id="contract-caret" class="w-1 h-3 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-pulse"></div>
                 <input id="contract-search-input" type="text" autocomplete="off" placeholder=""
                   class="flex-1 bg-transparent outline-none text-cyan-200 placeholder:text-cyan-800 font-display text-sm caret-transparent font-bold tracking-wide text-glow" />
               </div>
@@ -4331,28 +5300,598 @@
       return contractPaletteEl;
     };
 
-    const ensureHotkeyHelp = () => {
-      if (hotkeyHelpEl) return hotkeyHelpEl;
-      hotkeyHelpEl = document.createElement('div');
-      hotkeyHelpEl.id = 'hotkey-help';
-      hotkeyHelpEl.className = 'fixed inset-0 z-50 hidden';
-      hotkeyHelpEl.innerHTML = `
-        <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(6,182,212,0.08),_rgba(4,8,18,0.9))] backdrop-blur-sm"></div>
-        <div class="absolute inset-0 pointer-events-none opacity-40">
-          <svg class="w-full h-full">
-            <defs>
-              <pattern id="hotkey-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0f1b2e" stroke-width="0.8" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#hotkey-grid)" />
-          </svg>
-        </div>
-        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8">
-          <div class="relative w-full max-w-2xl">
-            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
-            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden max-h-[80vh] overflow-y-auto custom-scrollbar hotkey-panel">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
+    const closeReadOnlyCall = () => {
+      if (!readOnlyCallEl) return;
+      appState.readOnlyCall.open = false;
+      readOnlyCallEl.classList.add('hidden');
+    };
+
+    const getReadOnlyFunctions = () => {
+      return Array.isArray(hydratedReadOnly?.functions) ? hydratedReadOnly.functions : [];
+    };
+
+    const filterReadOnlyFunctions = (q = '') => {
+      const list = getReadOnlyFunctions();
+      const needle = q.trim().toLowerCase();
+      const filtered = needle
+        ? list.filter((fn) =>
+          fn.name.toLowerCase().includes(needle) ||
+          fn.signature.toLowerCase().includes(needle) ||
+          fn.contract.toLowerCase().includes(needle)
+        )
+        : list;
+      return filtered.slice(0, 50);
+    };
+
+			    const ensureReadOnlyCallModal = () => {
+			      if (readOnlyCallEl) return readOnlyCallEl;
+			      readOnlyCallEl = document.createElement('div');
+			      readOnlyCallEl.id = 'readonly-call';
+			      readOnlyCallEl.className = 'fixed inset-0 z-50 hidden popup-overlay';
+			      readOnlyCallEl.innerHTML = `
+			        <div class="popup-overlay-bg"></div>
+			        <div class="popup-overlay-grid"></div>
+			        <div class="absolute inset-0 flex items-start justify-center pt-[4%] px-4 md:px-8 overflow-y-auto">
+			          <div class="relative w-full max-w-5xl">
+			            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+				            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden readonly-call-panel">
+					              <div class="grid grid-cols-1 md:grid-cols-2">
+ 					                <div class="border-r border-cyan-900/40 bg-[#050a14]">
+ 					                  <div id="readonly-results" class="max-h-[65vh] overflow-y-auto custom-scrollbar divide-y divide-cyan-900/40"></div>
+ 					                </div>
+ 					                <div class="bg-[#060b16] relative flex flex-col max-h-[65vh] overflow-hidden">
+ 					                  <div id="readonly-details" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar"></div>
+ 					                </div>
+ 					              </div>
+ 		            </div>
+		          </div>
+		        </div>
+		      `;
+			      document.body.appendChild(readOnlyCallEl);
+      attachOverlayOutsideClose(readOnlyCallEl, '.readonly-call-panel', closeReadOnlyCall);
+
+      return readOnlyCallEl;
+    };
+
+    const updateReadOnlyCallHighlight = () => {
+      const rows = readOnlyCallEl?.querySelectorAll('[data-readonly-index]');
+      rows?.forEach((row) => {
+        const idx = Number(row.getAttribute('data-readonly-index'));
+        applyPaletteRowHighlight(row, idx === appState.readOnlyCall.selectedIndex);
+      });
+      const resultsEl = readOnlyCallEl?.querySelector('#readonly-results');
+      const activeRow = rows?.[appState.readOnlyCall.selectedIndex];
+      if (resultsEl && activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+      }
+    };
+
+				    const renderReadOnlyCallDetails = () => {
+				      const list = appState.readOnlyCall.results || [];
+				      const active = list.find((fn) => fn.id === appState.readOnlyCall.selectedFnId) || list[0] || null;
+				      if (!active) {
+				        return `
+				          <div class="readonly-details-shell">
+				            <div class="ro-empty">No read-only functions available.</div>
+				            <div class="ro-hint">Pick a different contract, or switch back to write entry points.</div>
+				          </div>
+				        `;
+				      }
+
+				      const chain = (appState.readOnlyCall.targetChain || '').toString();
+				      const addr = (appState.readOnlyCall.targetAddress || '').toString();
+				      const defaultChain = (CONTRACT_CHAIN || '').toString();
+				      const defaultAddr = (CONTRACT_ADDRESS || '').toString();
+
+				      const params = (Array.isArray(active?.inputs) && active.inputs.length)
+				        ? active.inputs
+				        : parseSolidityParamsFromSignature(active.signature || '');
+
+              const outputs = (Array.isArray(active?.outputs) && active.outputs.length)
+                ? active.outputs
+                : [];
+
+            const hasInputs = Array.isArray(params) && params.length > 0;
+
+			      const argRows = hasInputs ? params.map((p, idx) => {
+			        const key = `arg_${idx}`;
+			        const value = (appState.readOnlyCall.args?.[key] || '').toString();
+			        const label = (p?.name && String(p.name).trim()) ? String(p.name).trim() : `param${idx + 1}`;
+			        const typeLabel = (p.type || '').trim();
+			        return `
+			          <div class="ro-arg-row">
+			            <div class="ro-arg-head">
+		              <div class="ro-arg-name" title="${escapeHtmlGlobal(label)}">${escapeHtmlGlobal(label)}</div>
+		              ${typeLabel ? `<div class="ro-arg-type-chip" title="${escapeHtmlGlobal(typeLabel)}">${escapeHtmlGlobal(typeLabel)}</div>` : ''}
+		            </div>
+		            <input data-arg-key="${key}" type="text" value="${escapeHtmlGlobal(value)}" placeholder="${escapeHtmlGlobal(typeLabel || 'value')}" class="ro-input" />
+		          </div>
+		        `;
+		      }).join('') : '';
+
+              const returnsMarkup = outputs.length
+                ? `<div class="ro-chip-row">${outputs.map((o, idx) => {
+                  // If return value is unnamed, only show the type (no "ret0" label).
+                  const label = (o?.name && String(o.name).trim()) ? String(o.name).trim() : '';
+                  const typeLabel = (o?.type || '').toString().trim();
+                  const safeLabel = escapeHtmlGlobal(label);
+                  const safeType = escapeHtmlGlobal(typeLabel);
+                  return `<div class="ro-chip" title="${safeType}">
+                    ${label ? `<span class="ro-chip-label">${safeLabel}</span>` : ''}
+                    <span class="ro-chip-value">${safeType}</span>
+                  </div>`;
+                }).join('')}</div>`
+                : `<div class="ro-empty">Return types unavailable (raw hex will be shown).</div>`;
+
+              const statusText = (appState.readOnlyCall.status || '').toString().trim();
+              const errorText = (appState.readOnlyCall.error || '').toString().trim();
+              const rawResult = (appState.readOnlyCall.lastRawResult || '').toString().trim();
+              const decodedResult = appState.readOnlyCall.lastDecodedResult;
+              const resultLines = [];
+              if (rawResult) resultLines.push(`raw: ${rawResult}`);
+              if (decodedResult !== null && decodedResult !== undefined && String(decodedResult).trim()) {
+                resultLines.push(`decoded: ${String(decodedResult).trim()}`);
+              }
+              const resultMarkup = resultLines.length
+                ? `<pre class="ro-result-pre">${escapeHtmlGlobal(resultLines.join('\n\n'))}</pre>`
+                : `<div class="ro-empty">No result yet.</div>`;
+
+				      return `
+				        <div class="readonly-details-shell">
+				          <div class="ro-grid">
+                    ${hasInputs ? `
+                      <div class="ro-block">
+                          <div class="ro-section-title">Inputs</div>
+                          <div class="ro-args custom-scrollbar">${argRows}</div>
+                      </div>
+                    ` : ''}
+				            <div class="ro-block">
+				              <div class="ro-section-title">Target</div>
+				              <div class="ro-target-row">
+				                <input id="readonly-target-chain" type="text" value="${escapeHtmlGlobal(chain)}" placeholder="${escapeHtmlGlobal(defaultChain || 'mainnet')}" class="ro-input ro-target-chain" />
+				                <input id="readonly-target-address" type="text" value="${escapeHtmlGlobal(addr)}" placeholder="${escapeHtmlGlobal(defaultAddr || '0x...')}" class="ro-input" />
+				              </div>
+				              <div class="ro-actions">
+				                <button id="readonly-call-submit" type="button" disabled class="ro-call-btn">Call</button>
+				              </div>
+				            </div>
+				            <div class="ro-block">
+				              <div class="ro-section-title">Returns</div>
+                      ${returnsMarkup}
+				            </div>
+                    ${appState.readOnlyCall.showResult ? `
+                      <div class="ro-block">
+                        <div class="ro-section-title">Result</div>
+                        <div class="ro-result-meta">
+                          ${statusText ? `<div class="ro-status">${escapeHtmlGlobal(statusText)}</div>` : ''}
+                          ${errorText ? `<div class="ro-error">${escapeHtmlGlobal(errorText)}</div>` : ''}
+                        </div>
+                        ${resultMarkup}
+                      </div>
+                    ` : ''}
+				          </div>
+				        </div>
+				      `;
+				    };
+
+      const resolveEtherscanChainId = (raw) => {
+        const text = (raw || '').toString().trim().toLowerCase();
+        if (!text) return null;
+        if (/^\d+$/.test(text)) return text;
+        if (EXPLORER_BY_CHAIN && EXPLORER_BY_CHAIN[text] && EXPLORER_BY_CHAIN[text].id) {
+          return (EXPLORER_BY_CHAIN[text].id || '').toString();
+        }
+        return null;
+      };
+
+      const normalizeFunctionNameFromSignature = (signature = '') => {
+        const head = (signature || '').toString().split('(')[0] || '';
+        const parts = head.split('.').filter(Boolean);
+        return (parts[parts.length - 1] || head || '').trim();
+      };
+
+      const isValidHexData = (value) => /^0x[0-9a-fA-F]*$/.test((value || '').toString().trim());
+
+      const isValidAddress = (value) => /^0x[0-9a-fA-F]{40}$/.test((value || '').toString().trim());
+
+      const normalizeAbiType = (type) => {
+        const raw = (type || '').toString().trim();
+        if (!raw) return '';
+        // Drop common non-ABI qualifiers that show up in source-level types.
+        let t = raw.replace(/\b(memory|calldata|storage)\b/g, '').replace(/\s+/g, ' ').trim();
+        // Slither may print "contract IERC20" for contract types (ABI uses address).
+        if (/^contract\s+/i.test(t)) t = 'address';
+        // Best-effort: treat enums as uint8 (ABI encoding is integer); decoding may still be ambiguous.
+        if (/^enum\s+/i.test(t)) t = 'uint8';
+        return t;
+      };
+
+      const parseArgValueByType = (type, raw) => {
+        const typ = normalizeAbiType(type);
+        const value = (raw || '').toString().trim();
+        if (!typ) return value;
+        if (typ.endsWith(']')) {
+          // Expect JSON-ish arrays for array types (e.g., [1,2] or ["0x.."]).
+          if (!value) throw new Error(`Missing value for type ${typ} (use [] for empty array)`);
+          try {
+            const parsed = JSON.parse(value);
+            if (!Array.isArray(parsed)) throw new Error('Expected JSON array');
+            return parsed;
+          } catch (err) {
+            throw new Error(`Invalid array for type ${typ}: ${err?.message || err}`);
+          }
+        }
+        if (/^u?int(\d+)?$/i.test(typ)) {
+          // Keep as string so ethers can handle large values.
+          if (!value) throw new Error(`Missing value for type ${typ}`);
+          return value;
+        }
+        if (/^address$/i.test(typ) || /^address\s+payable$/i.test(typ)) {
+          if (!isValidAddress(value)) throw new Error(`Invalid address: ${value || '(empty)'}`);
+          return value;
+        }
+        if (/^bool$/i.test(typ)) {
+          const lowered = value.toLowerCase();
+          if (lowered === 'true' || lowered === '1') return true;
+          if (lowered === 'false' || lowered === '0') return false;
+          throw new Error(`Invalid bool: ${value || '(empty)'}`);
+        }
+        if (/^bytes(\d+)?$/i.test(typ)) {
+          if (!isValidHexData(value)) throw new Error(`Invalid bytes hex: ${value || '(empty)'}`);
+          return value;
+        }
+        if (/^string$/i.test(typ)) {
+          return value;
+        }
+        // Best-effort for other ABI-encodable types (enums show up as uint8-like strings anyway).
+        if (!value) throw new Error(`Missing value for type ${typ}`);
+        return value;
+      };
+
+      const stringifyDecoded = (decodedValues) => {
+        const toFriendly = (v) => {
+          if (typeof v === 'bigint') return v.toString();
+          if (Array.isArray(v)) return v.map(toFriendly);
+          if (v && typeof v === 'object') {
+            // Ethers v6 returns arrays for tuples; avoid serializing named props.
+            if (Array.isArray(v)) return v.map(toFriendly);
+          }
+          return v;
+        };
+        const friendly = toFriendly(decodedValues);
+        if (friendly === null || friendly === undefined) return '';
+        if (typeof friendly === 'string') return friendly;
+        if (typeof friendly === 'number' || typeof friendly === 'boolean') return String(friendly);
+        try {
+          return JSON.stringify(friendly, null, 2);
+        } catch (_) {
+          return String(friendly);
+        }
+      };
+
+      const getActiveReadOnlyFn = () => {
+        const list = appState.readOnlyCall.results || [];
+        return list.find((fn) => fn.id === appState.readOnlyCall.selectedFnId) || list[0] || null;
+      };
+
+      const canSubmitReadOnlyCall = () => {
+        if (!window.ethers) return false;
+        const chainId = resolveEtherscanChainId(appState.readOnlyCall.targetChain || CONTRACT_CHAIN);
+        const address = (appState.readOnlyCall.targetAddress || CONTRACT_ADDRESS || '').toString().trim();
+        const fn = getActiveReadOnlyFn();
+        if (!chainId || !isValidAddress(address) || !fn) return false;
+
+        const params = (Array.isArray(fn?.inputs) && fn.inputs.length)
+          ? fn.inputs
+          : parseSolidityParamsFromSignature(fn.signature || '');
+
+        const types = params.map((p) => normalizeAbiType(p?.type || ''));
+        if (types.some((t) => !t)) return false;
+
+        // Validate "required inputs": all params must be present and parseable.
+        try {
+          const args = params.map((p, idx) => {
+            const key = `arg_${idx}`;
+            const raw = (appState.readOnlyCall.args?.[key] || '').toString();
+            return parseArgValueByType(p?.type || '', raw);
+          });
+          const fnName = normalizeFunctionNameFromSignature(fn.signature || fn.name || '');
+          const iface = new ethers.Interface([`function ${fnName}(${types.join(',')})`]);
+          iface.encodeFunctionData(fnName, args);
+        } catch (_) {
+          return false;
+        }
+
+        return true;
+      };
+
+      const updateReadOnlyCallSubmitEnabled = () => {
+        if (!readOnlyCallEl) return;
+        const submit = readOnlyCallEl.querySelector('#readonly-call-submit');
+        if (!submit) return;
+        submit.disabled = !canSubmitReadOnlyCall();
+      };
+
+      const resetReadOnlyCallResultState = ({ clearArgs = false } = {}) => {
+        if (clearArgs) {
+          appState.readOnlyCall.args = {};
+        }
+        appState.readOnlyCall.showResult = false;
+        appState.readOnlyCall.status = '';
+        appState.readOnlyCall.error = '';
+        appState.readOnlyCall.lastRawResult = '';
+        appState.readOnlyCall.lastDecodedResult = null;
+      };
+
+      const submitReadOnlyCall = async () => {
+        const fn = getActiveReadOnlyFn();
+        if (!fn) return;
+        if (!window.ethers) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = 'ethers.js not available in this page.';
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+
+        // Only show the Result panel after the user actually initiates a call.
+        appState.readOnlyCall.showResult = true;
+
+        const chainId = resolveEtherscanChainId(appState.readOnlyCall.targetChain || CONTRACT_CHAIN);
+        const to = (appState.readOnlyCall.targetAddress || CONTRACT_ADDRESS || '').toString().trim();
+        if (!chainId) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = 'Invalid chain (expected a chain name like "mainnet" or a numeric chain id).';
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+        if (!isValidAddress(to)) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = 'Invalid target address.';
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+
+        const params = (Array.isArray(fn?.inputs) && fn.inputs.length)
+          ? fn.inputs
+          : parseSolidityParamsFromSignature(fn.signature || '');
+        const types = params.map((p) => normalizeAbiType(p?.type || ''));
+        const missingTypeIdx = types.findIndex((t) => !t);
+        if (missingTypeIdx !== -1) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = `Missing or unsupported input type for param ${missingTypeIdx + 1}.`;
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+        const fnName = normalizeFunctionNameFromSignature(fn.signature || fn.name || '');
+
+        let args = [];
+        try {
+          args = params.map((p, idx) => {
+            const key = `arg_${idx}`;
+            const raw = (appState.readOnlyCall.args?.[key] || '').toString();
+            return parseArgValueByType(p?.type || '', raw);
+          });
+        } catch (err) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = err?.message || String(err);
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+
+        let data = '';
+        try {
+          const iface = new ethers.Interface([`function ${fnName}(${types.join(',')})`]);
+          data = iface.encodeFunctionData(fnName, args);
+        } catch (err) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = `Failed to encode calldata: ${err?.message || err}`;
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+          return;
+        }
+
+        appState.readOnlyCall.status = 'Calling...';
+        appState.readOnlyCall.error = '';
+        appState.readOnlyCall.lastRawResult = '';
+        appState.readOnlyCall.lastDecodedResult = null;
+
+        const details = readOnlyCallEl?.querySelector?.('#readonly-details');
+        if (details) {
+          details.innerHTML = renderReadOnlyCallDetails();
+          attachReadOnlyCallHandlers();
+        }
+
+        try {
+          const res = await fetch('/eth_call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chainid: chainId, to, data, tag: 'latest' })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(payload?.error || payload?.detail || `HTTP ${res.status}`);
+          }
+          const result = (payload?.result || '').toString();
+          if (!isValidHexData(result)) {
+            throw new Error(payload?.error || 'Unexpected result from Etherscan proxy.');
+          }
+
+          appState.readOnlyCall.lastRawResult = result;
+          appState.readOnlyCall.status = 'OK';
+          appState.readOnlyCall.error = '';
+
+          const outs = Array.isArray(fn?.outputs) ? fn.outputs : [];
+          const outTypes = outs.map((o) => normalizeAbiType(o?.type || ''));
+          const missingOutTypeIdx = outTypes.findIndex((t) => !t);
+          if (outTypes.length && missingOutTypeIdx === -1) {
+            try {
+              const coder = ethers.AbiCoder.defaultAbiCoder();
+              const decoded = coder.decode(outTypes, result);
+              const ordered = outTypes.map((_, idx) => decoded[idx]);
+              const value = ordered.length === 1 ? ordered[0] : ordered;
+              appState.readOnlyCall.lastDecodedResult = stringifyDecoded(value);
+            } catch (err) {
+              appState.readOnlyCall.lastDecodedResult = null;
+              appState.readOnlyCall.error = `Decode failed: ${err?.message || err}`;
+            }
+          }
+        } catch (err) {
+          appState.readOnlyCall.status = '';
+          appState.readOnlyCall.error = err?.message || String(err);
+          appState.readOnlyCall.lastRawResult = '';
+          appState.readOnlyCall.lastDecodedResult = null;
+        } finally {
+          const details2 = readOnlyCallEl?.querySelector?.('#readonly-details');
+          if (details2) {
+            details2.innerHTML = renderReadOnlyCallDetails();
+            attachReadOnlyCallHandlers();
+          }
+        }
+      };
+
+	    const attachReadOnlyCallHandlers = () => {
+	      if (!readOnlyCallEl) return;
+	      const details = readOnlyCallEl.querySelector('#readonly-details');
+	      if (details) {
+	        details.querySelectorAll('input[data-arg-key]').forEach((input) => {
+	        input.addEventListener('input', (e) => {
+	          const key = e.target.getAttribute('data-arg-key');
+	          if (!key) return;
+	          appState.readOnlyCall.args[key] = e.target.value;
+            updateReadOnlyCallSubmitEnabled();
+	        });
+	        });
+	      }
+
+		      // Target controls live inside #readonly-details.
+		      const chainInput = readOnlyCallEl.querySelector('#readonly-target-chain');
+		      if (chainInput) {
+		        chainInput.addEventListener('input', (e) => {
+		          appState.readOnlyCall.targetChain = e.target.value;
+              updateReadOnlyCallSubmitEnabled();
+		        });
+	      }
+	      const addrInput = readOnlyCallEl.querySelector('#readonly-target-address');
+	      if (addrInput) {
+	        addrInput.addEventListener('input', (e) => {
+	          appState.readOnlyCall.targetAddress = e.target.value;
+            updateReadOnlyCallSubmitEnabled();
+	        });
+	      }
+
+        const submit = readOnlyCallEl.querySelector('#readonly-call-submit');
+        if (submit && !submit._roAttached) {
+          submit._roAttached = true;
+          submit.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            submitReadOnlyCall();
+          });
+        }
+
+        updateReadOnlyCallSubmitEnabled();
+		    };
+
+    const updateReadOnlyCallResults = () => {
+      ensureReadOnlyCallModal();
+      const resultsEl = readOnlyCallEl.querySelector('#readonly-results');
+      appState.readOnlyCall.results = filterReadOnlyFunctions(appState.readOnlyCall.query);
+      const results = appState.readOnlyCall.results || [];
+      if (!results.length) {
+        appState.readOnlyCall.selectedIndex = 0;
+        appState.readOnlyCall.selectedFnId = null;
+      } else {
+        const byId = appState.readOnlyCall.selectedFnId
+          ? results.findIndex((fn) => fn.id === appState.readOnlyCall.selectedFnId)
+          : -1;
+        const byIndex = Number.isFinite(appState.readOnlyCall.selectedIndex)
+          ? appState.readOnlyCall.selectedIndex
+          : 0;
+        const nextIndex = byId !== -1
+          ? byId
+          : (byIndex >= 0 && byIndex < results.length ? byIndex : 0);
+        appState.readOnlyCall.selectedIndex = nextIndex;
+        appState.readOnlyCall.selectedFnId = results[nextIndex]?.id || results[0]?.id || null;
+      }
+      const markup = appState.readOnlyCall.results.map((fn, idx) => `
+        <button data-readonly-index="${idx}" data-readonly-fn-id="${fn.id}"
+          class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 border-l-2 border-l-transparent bg-transparent hover:bg-cyan-900/30 transition-colors">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
+              ${iconSvg('hexagon', 'w-4 h-4 text-cyan-300')}
+            </div>
+            <div class="flex flex-col min-w-0">
+              <span class="font-display font-bold tracking-wide text-sm text-cyan-200 text-glow truncate">${escapeHtmlGlobal(fn.name)}</span>
+              <div class="font-mono text-[10px] text-slate-500 flex items-center gap-1 min-w-0">
+                ${iconSvg('box', 'w-3 h-3 text-cyan-600')}
+                <span class="text-cyan-600 uppercase tracking-widest font-bold mt-[1px] truncate">${escapeHtmlGlobal(fn.contract)}.sol</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-[11px] font-mono text-slate-500 truncate max-w-[220px]">${escapeHtmlGlobal(fn.signature)}</div>
+        </button>
+      `).join('') || `<div class="px-4 py-6 text-center text-slate-500 font-mono text-xs">No matches found.</div>`;
+      resultsEl.innerHTML = markup;
+      resultsEl.querySelectorAll('button[data-readonly-fn-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-readonly-fn-id');
+          if (!id) return;
+          appState.readOnlyCall.selectedFnId = id;
+          appState.readOnlyCall.selectedIndex = Number(btn.getAttribute('data-readonly-index')) || 0;
+          resetReadOnlyCallResultState({ clearArgs: true });
+          const details = readOnlyCallEl.querySelector('#readonly-details');
+          if (details) {
+            details.innerHTML = renderReadOnlyCallDetails();
+            attachReadOnlyCallHandlers();
+          }
+          updateReadOnlyCallHighlight();
+        });
+      });
+	      const details = readOnlyCallEl.querySelector('#readonly-details');
+	      if (details) {
+	        details.innerHTML = renderReadOnlyCallDetails();
+	      }
+		      attachReadOnlyCallHandlers();
+		      updateReadOnlyCallHighlight();
+		    };
+
+    const openReadOnlyCall = () => {
+      ensureReadOnlyCallModal();
+      appState.readOnlyCall.open = true;
+      // No search UI: reset to full list every time.
+      appState.readOnlyCall.query = '';
+      appState.readOnlyCall.selectedIndex = 0;
+      appState.readOnlyCall.selectedFnId = null;
+      appState.readOnlyCall.args = {};
+      appState.readOnlyCall.showResult = false;
+      appState.readOnlyCall.status = '';
+      appState.readOnlyCall.error = '';
+      appState.readOnlyCall.lastRawResult = '';
+      appState.readOnlyCall.lastDecodedResult = null;
+      readOnlyCallEl.classList.remove('hidden');
+      readOnlyCallOpenedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      readOnlyNavLastAt = 0;
+      updateReadOnlyCallResults();
+    };
+
+	    const ensureHotkeyHelp = () => {
+	      if (hotkeyHelpEl) return hotkeyHelpEl;
+	      hotkeyHelpEl = document.createElement('div');
+	      hotkeyHelpEl.id = 'hotkey-help';
+	      hotkeyHelpEl.className = 'fixed inset-0 z-50 hidden popup-overlay';
+	      hotkeyHelpEl.innerHTML = `
+	        <div class="popup-overlay-bg"></div>
+	        <div class="popup-overlay-grid"></div>
+	        <div class="absolute inset-0 flex items-start justify-center pt-[5%] px-4 md:px-8">
+	          <div class="relative w-full max-w-2xl">
+	            <div class="absolute inset-0 blur-3xl bg-cyan-500/10"></div>
+	            <div class="relative border border-cyan-900/50 bg-[#060b16]/95 shadow-2xl rounded-sm overflow-hidden max-h-[80vh] overflow-y-auto custom-scrollbar hotkey-panel">
+	              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 p-4">
                 ${(Array.isArray(hotkeyConfig?.help) ? hotkeyConfig.help : []).map((entry) => {
         const label = entry?.label || '';
         const keys = Array.isArray(entry?.keys)
@@ -4439,13 +5978,36 @@
       setToggleStyles(stepBtn, appState.stepByStepEnabled);
     };
 
+    function applyPaletteRowHighlight(row, isActive) {
+      // Use a hoisted function declaration so callers defined earlier in the file can use it.
+      if (!row) return;
+      row.classList.toggle('bg-gradient-to-r', isActive);
+      row.classList.toggle('from-cyan-950/60', isActive);
+      row.classList.toggle('to-transparent', isActive);
+      row.classList.toggle('bg-transparent', !isActive);
+      row.classList.toggle('border-l-transparent', !isActive);
+
+      // The Tailwind CDN only generates CSS for classes it sees in HTML class attributes.
+      // Since we toggle highlight-related classes dynamically (and some are arbitrary-value utilities),
+      // they may not exist at runtime. Also, `divide-*` utilities set `border-color` on children which
+      // can visually "erase" left border color depending on CSS ordering.
+      //
+      // Use inline styles for the left accent + shadow so the highlight is stable and matches the
+      // ENTRY POINTS list (cyan-400 left border + subtle glow).
+      if (isActive) {
+        row.style.borderLeftColor = '#22d3ee'; // cyan-400
+        row.style.boxShadow = '0 0 12px rgba(6, 182, 212, 0.14)';
+      } else {
+        row.style.borderLeftColor = '';
+        row.style.boxShadow = '';
+      }
+    }
+
     const updateSearchHighlight = () => {
       const rows = searchPaletteEl?.querySelectorAll('[data-search-index]');
       rows?.forEach((row) => {
         const idx = Number(row.getAttribute('data-search-index'));
-        row.classList.toggle('bg-cyan-900/40', idx === appState.search.selectedIndex);
-        row.classList.toggle('border-l-2', idx === appState.search.selectedIndex);
-        row.classList.toggle('border-cyan-500', idx === appState.search.selectedIndex);
+        applyPaletteRowHighlight(row, idx === appState.search.selectedIndex);
       });
       const resultsEl = searchPaletteEl?.querySelector('#search-results');
       const activeRow = rows?.[appState.search.selectedIndex];
@@ -4475,7 +6037,7 @@
       appState.search.results = filterFunctions(appState.search.query);
       const markup = appState.search.results.map((fn, idx) => `
         <button data-search-index="${idx}" data-fn-id="${fn.id}"
-          class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-cyan-900/30 transition-colors">
+          class="w-full text-left px-4 py-3 flex items-center justify-between gap-3 border-l-2 border-l-transparent bg-transparent hover:bg-cyan-900/30 transition-colors">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-sm border border-cyan-900/50 bg-cyan-900/20 flex items-center justify-center">
               ${fn.type === 'write'
@@ -4548,6 +6110,7 @@
       appState.search.open = true;
       appState.search.query = '';
       appState.search.selectedIndex = 0;
+      searchNavLastAt = 0;
       updateSearchResults();
       searchPaletteEl.classList.remove('hidden');
       setTimeout(() => {
@@ -4631,13 +6194,15 @@
         : (appState.lastAction === 'toggle-left' ? 'animate-slideRight' : 'animate-slideRight');
       const chainLabel = (CONTRACT_CHAIN || 'mainnet').toUpperCase();
       const addressLabel = CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
+      const isReadOnlyMode = appState.entryPointMode === 'read_only';
+      const panelLabel = isReadOnlyMode ? 'READ-ONLY' : 'ENTRY POINTS';
       const contractSelector = (getSelectableContracts().length > 1)
         ? `
                             <div class="border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
                                 <button type="button" onclick="openContractPalette()" class="px-4 py-3 w-full flex items-center gap-3 text-left group">
                                     <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('box', 'w-4 h-4 text-slate-400')}</div>
                                     <div class="flex-1 min-w-0">
-                                        <div class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${escapeHtmlGlobal(activeContract || '')}</div>
+                                        <div class="text-[10px] text-slate-400 uppercase tracking-widest font-display truncate">${escapeHtmlGlobal(activeContract || '')}</div>
                                         <div class="text-[9px] text-cyan-700 font-mono uppercase">Top-level contract</div>
                                     </div>
                                     <div class="text-[10px] tracking-widest text-slate-400">▼</div>
@@ -4655,9 +6220,9 @@
                             ${contractSelector}
                             <div class="px-4 py-3 border-b border-cyan-900/30 bg-cyan-950/20 shrink-0 flex items-center gap-3">
                                 <div class="p-1.5 rounded-sm bg-cyan-950/30 border border-cyan-500/20">${iconSvg('mouse-pointer-click', 'w-4 h-4 text-slate-400')}</div>
-                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${functionList.length} ENTRY POINTS ${appState.showAudited ? '' : ` · ${functionList.length - filteredFunctions.length} HIDDEN`}</span><span class="text-[9px] text-cyan-700 font-mono uppercase line-clamp-1">REPLACE_THIS_WITH_SOLIDITY_VERSION</span></div>
+                                <div class="flex flex-col"><span class="text-[10px] text-slate-400 uppercase tracking-widest font-display">${functionList.length} ${panelLabel} ${appState.showAudited ? '' : ` · ${functionList.length - filteredFunctions.length} HIDDEN`}</span><span class="text-[9px] text-cyan-700 font-mono uppercase line-clamp-1">REPLACE_THIS_WITH_SOLIDITY_VERSION</span></div>
                             </div>
-                            <div class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                            <div class="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
                                 ${filteredFunctions.map((fn) => `
                                     <button data-fn-id="${fn.id}" onclick="selectFunction('${fn.id}')" class="w-full text-left group relative p-3 overflow-hidden border-l-2 flex items-center justify-between gap-3 ${appState.activeFunctionId === fn.id ? 'bg-gradient-to-r from-cyan-950/60 to-transparent border-cyan-400' : 'bg-transparent border-transparent hover:bg-cyan-900/20 hover:border-cyan-800'}">
                                         <div class="absolute inset-0 bg-cyan-400/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300"></div>
@@ -4668,21 +6233,22 @@
           : iconSvg('hexagon', 'w-3 h-3')}
                                             </div>
                                             <div class="flex flex-col min-w-0">
-                                                <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
+                                                <span data-role="fn-title" class="font-display text-xs font-bold tracking-wide transition-colors truncate ${appState.activeFunctionId === fn.id ? 'text-cyan-200 text-glow' : 'text-slate-400 group-hover:text-cyan-100'}">${fn.name}</span>
                                                 <span class="text-[9px] text-slate-600 font-mono truncate max-w-[140px] opacity-70 group-hover:opacity-100">${fn.signature}</span>
                                             </div>
-                                        </div>
-                                        <div class="relative z-10 flex items-center gap-2">
-                                          <div data-review-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.flowHash || fn.id}', event)" class="review-toggle rounded-sm ${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
-                                            !
-                                          </div>
-                                          <div data-audit-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.flowHash || fn.id}', event)" class="audit-toggle rounded-sm ${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                              <path d="M20 6 9 17l-5-5"></path>
-                                            </svg>
-                                          </div>
-                                        </div>
-                                    </button>
+	                                        </div>
+	                                        <div class="relative z-10 flex items-center gap-2">
+	                                          ${renderSenderHintBadge(fn.id)}
+	                                          <div data-review-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle needs-review flag (i)" onclick="toggleReviewMark('${fn.flowHash || fn.id}', event)" class="review-toggle rounded-sm ${reviewFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
+	                                            !
+	                                          </div>
+	                                          <div data-audit-id="${fn.flowHash || fn.id}" role="checkbox" aria-checked="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'true' : 'false'}" aria-hidden="${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'false' : 'true'}" title="Toggle audited (m)" onclick="toggleAuditMark('${fn.flowHash || fn.id}', event)" class="audit-toggle rounded-sm ${auditedFlowHashes.has(fn.flowHash || fn.id) ? 'is-active' : ''}">
+	                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-cyan-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+	                                              <path d="M20 6 9 17l-5-5"></path>
+	                                            </svg>
+	                                          </div>
+	                                        </div>
+	                                    </button>
                                 `).join('') || `<div class="px-3 py-6 text-center text-[10px] font-mono text-slate-600 uppercase tracking-widest">No unaudited entry points.</div>`}
                             </div>
                             <div class="h-6 bg-[#040812] border-t border-cyan-900/30 flex items-center justify-between px-3 shrink-0">
@@ -4785,13 +6351,17 @@
           .filter(Boolean)
           .map((name) => name.toLowerCase())
       );
-      const functionInfo = { nameArityMap, uniqueNames, knownContractsLower };
-      const flowMarkup = graph
-        .map((node, i) => renderNodeWidget(node, i, !isEntrySwitch && !appState.stepByStepEnabled, functionInfo))
-        .join('');
-      return `
-                <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
-                     <div class="h-full flex flex-col">
+	      const functionInfo = { nameArityMap, uniqueNames, knownContractsLower };
+	      const animateNodes = !isEntrySwitch && !appState.stepByStepEnabled;
+	      const flowPieces = [];
+	      let renderIndex = 0;
+	      graph.forEach((node) => {
+	        flowPieces.push(renderNodeWidget(node, renderIndex++, animateNodes, functionInfo));
+	      });
+	      const flowMarkup = flowPieces.join('');
+	      return `
+	                <section id="main-flow" class="flex-1 h-full min-w-0 relative ${mainAnimationClass}" style="${mainAnimationClass ? 'animation-delay: 200ms' : ''}">
+	                     <div class="h-full flex flex-col">
                         <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar pb-20 pr-4">
                             <div class="mx-auto">
                                 ${flowMarkup}
@@ -4884,16 +6454,18 @@
       applySidebarVisibility();
     };
 
-    const refreshLeftSidebar = () => {
-      const leftEl = document.getElementById('sidebar-left');
-      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
-      applySidebarVisibility();
-      updateAuditMarksUI();
-      updateReviewMarksUI();
-    };
+	    const refreshLeftSidebar = () => {
+	      hideSenderTooltip();
+	      const leftEl = document.getElementById('sidebar-left');
+	      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
+	      applySidebarVisibility();
+	      updateAuditMarksUI();
+	      updateReviewMarksUI();
+	    };
 
     // --- MAIN RENDER LOOP ---
     const renderApp = () => {
+      hideSenderTooltip();
       const container = document.getElementById('app-container');
       const isEntrySwitch = appInitialized && appState.lastAction === 'select-function';
       if (!functionList.length) {
@@ -4966,22 +6538,23 @@
     };
 
     // Init
-    document.addEventListener('DOMContentLoaded', async () => {
-      outroOverlay = document.getElementById('outro-overlay');
-      appState.stepByStepEnabled = loadStepByStepPreference();
-      document.body.classList.toggle('step-by-step-active', appState.stepByStepEnabled);
-      loadCodeFontSize();
-      loadReviewMarks();
-      loadAuditMarks();
-      loadDimmedLines();
-      loadLineComments();
-      loadCollapsedNodes();
-      loadHideCollapsed();
-      await loadHotkeyConfig();
-      const initialContract = resolveDefaultContract();
-      setActiveContract(initialContract, { initial: true });
+	    document.addEventListener('DOMContentLoaded', async () => {
+	      outroOverlay = document.getElementById('outro-overlay');
+	      appState.stepByStepEnabled = loadStepByStepPreference();
+	      document.body.classList.toggle('step-by-step-active', appState.stepByStepEnabled);
+	      loadCodeFontSize();
+	      loadReviewMarks();
+	      loadAuditMarks();
+	      loadDimmedLines();
+		      loadLineComments();
+		      loadCollapsedNodes();
+		      loadHideCollapsed();
+		      await loadHotkeyConfig();
+		      const initialContract = resolveDefaultContract();
+		      setActiveContract(initialContract, { initial: true });
 
-      ensureSearchPalette();
+	      ensureSearchPalette();
+      ensureReadOnlyCallModal();
       document.addEventListener('keydown', (event) => {
         const target = event.target;
         const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -4990,6 +6563,67 @@
           || (contractPaletteEl && contractPaletteEl.contains(target));
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (isCommentEditing || (commentEditorEl && commentEditorEl.contains(target))) return;
+
+        if (appState.readOnlyCall.open) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            closeReadOnlyCall();
+          }
+          if (isTyping) return;
+
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            // When reopening the modal, some browsers emit a trailing repeat event from the prior key hold.
+            // Ignore repeats for a short window after opening to avoid double-stepping.
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (readOnlyNavLastAt && (now - readOnlyNavLastAt) < 100) return;
+            readOnlyNavLastAt = now;
+            if (event.repeat && readOnlyCallOpenedAt && (now - readOnlyCallOpenedAt) < 250) return;
+            const max = appState.readOnlyCall.results.length;
+            if (max) {
+              appState.readOnlyCall.selectedIndex = (appState.readOnlyCall.selectedIndex + 1) % max;
+              const fn = appState.readOnlyCall.results[appState.readOnlyCall.selectedIndex];
+              if (fn) {
+                appState.readOnlyCall.selectedFnId = fn.id;
+                resetReadOnlyCallResultState({ clearArgs: true });
+              }
+              const details = readOnlyCallEl?.querySelector?.('#readonly-details');
+              if (details) {
+                details.innerHTML = renderReadOnlyCallDetails();
+                attachReadOnlyCallHandlers();
+              }
+              updateReadOnlyCallHighlight();
+            }
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (readOnlyNavLastAt && (now - readOnlyNavLastAt) < 100) return;
+            readOnlyNavLastAt = now;
+            if (event.repeat && readOnlyCallOpenedAt && (now - readOnlyCallOpenedAt) < 250) return;
+            const max = appState.readOnlyCall.results.length;
+            if (max) {
+              appState.readOnlyCall.selectedIndex = (appState.readOnlyCall.selectedIndex - 1 + max) % max;
+              const fn = appState.readOnlyCall.results[appState.readOnlyCall.selectedIndex];
+              if (fn) {
+                appState.readOnlyCall.selectedFnId = fn.id;
+                resetReadOnlyCallResultState({ clearArgs: true });
+              }
+              const details = readOnlyCallEl?.querySelector?.('#readonly-details');
+              if (details) {
+                details.innerHTML = renderReadOnlyCallDetails();
+                attachReadOnlyCallHandlers();
+              }
+              updateReadOnlyCallHighlight();
+            }
+          }
+          return;
+        }
 
         // When palette is open, only palette controls are active
         if (appState.search.open) {
@@ -5001,11 +6635,17 @@
             activateSearchSelection();
           } else if (matchesAction(event, 'searchDown')) {
             event.preventDefault();
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (searchNavLastAt && (now - searchNavLastAt) < 100) return;
+            searchNavLastAt = now;
             const max = appState.search.results.length;
             if (max) appState.search.selectedIndex = (appState.search.selectedIndex + 1) % max;
             updateSearchHighlight();
           } else if (matchesAction(event, 'searchUp')) {
             event.preventDefault();
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            if (searchNavLastAt && (now - searchNavLastAt) < 100) return;
+            searchNavLastAt = now;
             const max = appState.search.results.length;
             if (max) appState.search.selectedIndex = (appState.search.selectedIndex - 1 + max) % max;
             updateSearchHighlight();
@@ -5073,9 +6713,12 @@
         } else if (matchesAction(event, 'toggleHideCollapsed')) {
           event.preventDefault();
           toggleHideCollapsed();
+        } else if (matchesAction(event, 'toggleReadOnlyLeft')) {
+          event.preventDefault();
+          toggleLeftPanelForMode('read_only');
         } else if (matchesAction(event, 'toggleLeft')) {
           event.preventDefault();
-          toggleSidebar('left');
+          toggleLeftPanelForMode('write');
         } else if (matchesAction(event, 'toggleRight')) {
           event.preventDefault();
           toggleSidebar('right');
@@ -5100,6 +6743,9 @@
         } else if (matchesAction(event, 'openSearch')) {
           event.preventDefault();
           openSearchPalette();
+        } else if (matchesAction(event, 'openReadOnlyCall')) {
+          event.preventDefault();
+          openReadOnlyCall();
         } else if (matchesAction(event, 'nextEntry')) {
           event.preventDefault();
           stepFunctionSelection(1);
@@ -5156,9 +6802,11 @@
         applyResponsiveGuard();
         hideVarTooltip();
         hideFnTooltip();
+        hideSenderTooltip();
       });
       window.addEventListener('scroll', hideVarTooltip, true);
       window.addEventListener('scroll', hideFnTooltip, true);
+      window.addEventListener('scroll', hideSenderTooltip, true);
 
     });
 

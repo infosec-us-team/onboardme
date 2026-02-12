@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from itertools import chain
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Sequence, Set, Union
 
-from slither.analyses.data_dependency.data_dependency import is_dependent
+from slither.analyses.data_dependency.data_dependency import compute_dependency, is_dependent
+from slither.core.cfg.node import NodeType
 from slither.core.declarations import Contract, FunctionContract
 from slither.core.declarations.function import Function
 from slither.core.declarations.modifier import Modifier
 from slither.core.declarations.solidity_variables import SolidityFunction, SolidityVariableComposed
 from slither.core.variables.local_variable import LocalVariable
 from slither.core.variables.state_variable import StateVariable
+from slither.slithir.operations.condition import Condition
 from slither.slithir.operations.high_level_call import HighLevelCall
+from slither.slithir.operations.index import Index
 from slither.slithir.operations.internal_call import InternalCall
 from slither.slithir.operations.library_call import LibraryCall
+from slither.slithir.operations.low_level_call import LowLevelCall
 from slither.slither import Slither
 from slither.utils.code_complexity import compute_cyclomatic_complexity
 from slither.utils.tests_pattern import is_test_file
@@ -36,6 +41,19 @@ from analysis.state_vars import (
 
 ProgressCallback = Callable[[str, Dict[str, Any] | None], None]
 
+_MSG_SENDER = SolidityVariableComposed("msg.sender")
+_REQUIRE_ASSERT_NAMES = {
+    "require(bool)",
+    "require(bool,string)",
+    "require(bool,error)",
+    "assert(bool)",
+}
+
+_INDEX_DEPS_CACHE: Dict[int, List[tuple[Any, Any]]] = {}
+_SENDER_DEP_CACHE: Dict[tuple[int, int], bool] = {}
+_INTERNAL_CALL_DEPS_CACHE: Dict[int, List[tuple[Any, Union[Function, Modifier]]]] = {}
+_CALLABLE_RETURN_SENDER_DEP_CACHE: Dict[int, bool] = {}
+
 
 def _report_progress(callback: ProgressCallback | None, message: str, **meta: Any) -> None:
     """Best-effort progress reporting."""
@@ -45,6 +63,47 @@ def _report_progress(callback: ProgressCallback | None, message: str, **meta: An
         callback(message, meta or None)
     except Exception:
         pass
+
+
+def _collect_entry_point_inputs(entry_point: Function) -> List[Dict[str, str]]:
+    """Extract parameter names/types for UI rendering (read-only call form)."""
+    inputs: List[Dict[str, str]] = []
+    for param in (getattr(entry_point, "parameters", None) or []):
+        name = (getattr(param, "name", "") or "").strip()
+        typ = str(getattr(param, "type", "") or "").strip()
+        inputs.append({"name": name, "type": typ})
+    return inputs
+
+
+def _collect_entry_point_outputs(entry_point: Function) -> List[Dict[str, str]]:
+    """Extract return names/types for UI decoding (read-only call results)."""
+    outputs: List[Dict[str, str]] = []
+
+    # Slither typically exposes `returns` (list of variables) for function return values.
+    returns = getattr(entry_point, "returns", None)
+    if isinstance(returns, list):
+        for ret in returns:
+            name = (getattr(ret, "name", "") or "").strip()
+            typ = str(getattr(ret, "type", "") or "").strip()
+            if typ:
+                outputs.append({"name": name, "type": typ})
+        return outputs
+
+    # Fallbacks: different Slither versions may use `return_type`.
+    return_type = getattr(entry_point, "return_type", None)
+    if return_type is None:
+        return outputs
+    if isinstance(return_type, list):
+        for idx, typ in enumerate(return_type):
+            t = str(typ or "").strip()
+            if t:
+                outputs.append({"name": f"ret{idx}", "type": t})
+        return outputs
+
+    t = str(return_type or "").strip()
+    if t:
+        outputs.append({"name": "ret0", "type": t})
+    return outputs
 
 
 def _var_display(var: Any) -> str:
@@ -127,6 +186,446 @@ def _collect_data_dependencies(callable_item: Union[Function, Modifier]) -> List
             edge.get("depends_on_scope", ""),
         ),
     )
+
+
+def _source_location(item: Any) -> Dict[str, Any]:
+    """Best-effort source location record for a Slither element (node, function, etc.)."""
+    sm = getattr(item, "source_mapping", None)
+    filename = ""
+    lines: List[int] = []
+    if sm is not None:
+        try:
+            filename_obj = getattr(sm, "filename", None)
+            filename = (
+                getattr(filename_obj, "relative", "")
+                or getattr(filename_obj, "short", "")
+                or getattr(filename_obj, "absolute", "")
+                or str(filename_obj or "")
+            )
+        except Exception:
+            filename = ""
+        try:
+            raw_lines = getattr(sm, "lines", None) or []
+            lines = [int(x) for x in raw_lines if isinstance(x, int) or str(x).isdigit()]
+        except Exception:
+            lines = []
+    start_line = min(lines) if lines else None
+    end_line = max(lines) if lines else None
+    return {
+        "filename": filename,
+        "lines": lines,
+        "start_line": start_line,
+        "end_line": end_line,
+    }
+
+
+def _fmt_location(loc: Dict[str, Any] | None) -> str:
+    if not isinstance(loc, dict):
+        return "<unknown>"
+    filename = (loc.get("filename") or "").strip() or "<unknown>"
+    start = loc.get("start_line")
+    end = loc.get("end_line")
+    if isinstance(start, int) and isinstance(end, int) and start != end:
+        return f"{filename}:L{start}-L{end}"
+    if isinstance(start, int):
+        return f"{filename}:L{start}"
+    return filename
+
+
+def _node_reverts(node: Any) -> bool:
+    """Return True if the node contains an unconditional revert/throw."""
+    try:
+        if getattr(node, "type", None) == NodeType.THROW:
+            return True
+    except Exception:
+        pass
+
+    for call in getattr(node, "solidity_calls", []) or []:
+        fn = getattr(call, "function", None)
+        if fn is None:
+            continue
+        name = str(getattr(fn, "name", fn) or "")
+        if name.startswith("revert"):
+            return True
+
+    return False
+
+
+def _depends_on_msg_sender(var: Any, ctx: Contract | Function | None) -> bool:
+    """
+    Return True if `var` depends (transitively) on msg.sender in the given analysis context.
+
+    Important: prefer passing a callable (Function/Modifier) as `ctx`.
+    Using a whole-contract context can massively over-approximate dependencies (especially
+    for temporary IR variables) and create false positives like marking `require(success)`
+    as sender-dependent even when the function never reads msg.sender.
+
+    Note: Slither's data-dependency intentionally ignores some "addressing dependencies"
+    (e.g. mapping/array indices in Index operations). We explicitly model those here so
+    common patterns like `allowed[msg.sender]` are treated as sender-dependent.
+
+    Note: Slither also does not always propagate dependencies through internal call
+    return values in caller context. We model those manually so wrappers like
+    `_msgSender()` are treated as sender-dependent when their return values derive
+    from `msg.sender`.
+    """
+    if ctx is None or var is None:
+        return False
+
+    def _index_deps_for_ctx(context: Contract | Function) -> List[tuple[Any, Any]]:
+        cache_key = id(context)
+        cached = _INDEX_DEPS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        deps: List[tuple[Any, Any]] = []
+        if isinstance(context, Contract):
+            callables: List[Any] = []
+            callables.extend(getattr(context, "functions", []) or [])
+            callables.extend(getattr(context, "modifiers", []) or [])
+            nodes_iter = chain.from_iterable(getattr(item, "nodes", []) or [] for item in callables)
+        else:
+            nodes_iter = getattr(context, "nodes", []) or []
+
+        for node in nodes_iter:
+            for ir in getattr(node, "irs", []) or []:
+                if not isinstance(ir, Index):
+                    continue
+                lvalue = getattr(ir, "lvalue", None)
+                idx = getattr(ir, "variable_right", None)
+                if lvalue is None or idx is None:
+                    continue
+                deps.append((lvalue, idx))
+        _INDEX_DEPS_CACHE[cache_key] = deps
+        return deps
+
+    def _internal_call_deps_for_ctx(
+        context: Contract | Function,
+    ) -> List[tuple[Any, Union[Function, Modifier]]]:
+        cache_key = id(context)
+        cached = _INTERNAL_CALL_DEPS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        deps: List[tuple[Any, Union[Function, Modifier]]] = []
+        if isinstance(context, Contract):
+            callables: List[Any] = []
+            callables.extend(getattr(context, "functions", []) or [])
+            callables.extend(getattr(context, "modifiers", []) or [])
+            nodes_iter = chain.from_iterable(getattr(item, "nodes", []) or [] for item in callables)
+        else:
+            nodes_iter = getattr(context, "nodes", []) or []
+
+        for node in nodes_iter:
+            for ir in getattr(node, "irs", []) or []:
+                if not isinstance(ir, InternalCall):
+                    continue
+                lvalue = getattr(ir, "lvalue", None)
+                target = getattr(ir, "function", None)
+                if lvalue is None or not isinstance(target, (Function, Modifier)):
+                    continue
+                deps.append((lvalue, target))
+
+        _INTERNAL_CALL_DEPS_CACHE[cache_key] = deps
+        return deps
+
+    def _callable_returns_sender_dependent(
+        callable_item: Union[Function, Modifier, None],
+        visiting_returns: Set[int],
+    ) -> bool:
+        if not isinstance(callable_item, Function):
+            return False
+
+        cache_key = id(callable_item)
+        cached = _CALLABLE_RETURN_SENDER_DEP_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        if cache_key in visiting_returns:
+            # Recursive internal-call cycle.
+            return False
+        visiting_returns.add(cache_key)
+
+        try:
+            return_values: List[Any] = list(getattr(callable_item, "return_values", None) or [])
+            if not return_values:
+                return_values = list(getattr(callable_item, "returns", None) or [])
+
+            for ret in return_values:
+                if ret is None:
+                    continue
+                try:
+                    if is_dependent(ret, _MSG_SENDER, callable_item):
+                        _CALLABLE_RETURN_SENDER_DEP_CACHE[cache_key] = True
+                        return True
+                except Exception:
+                    continue
+
+            for ret in return_values:
+                if ret is None:
+                    continue
+                for ref, callee in _internal_call_deps_for_ctx(callable_item):
+                    if ref is None:
+                        continue
+                    try:
+                        if not is_dependent(ret, ref, callable_item):
+                            continue
+                    except Exception:
+                        continue
+                    if _callable_returns_sender_dependent(callee, visiting_returns):
+                        _CALLABLE_RETURN_SENDER_DEP_CACHE[cache_key] = True
+                        return True
+
+            _CALLABLE_RETURN_SENDER_DEP_CACHE[cache_key] = False
+            return False
+        finally:
+            visiting_returns.remove(cache_key)
+
+    visiting: Set[tuple[int, int]] = set()
+
+    def _inner(v: Any) -> bool:
+        if v is None:
+            return False
+        cache_key = (id(ctx), id(v))
+        cached = _SENDER_DEP_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        if cache_key in visiting:
+            # Cycle through indexing relationships; treat as not-provable.
+            return False
+        visiting.add(cache_key)
+
+        try:
+            if is_dependent(v, _MSG_SENDER, ctx):
+                _SENDER_DEP_CACHE[cache_key] = True
+                visiting.remove(cache_key)
+                return True
+        except Exception:
+            pass
+
+        # Model Index lvalue := base[index]; the result depends on `index` too.
+        for ref, idx in _index_deps_for_ctx(ctx):
+            try:
+                if is_dependent(v, ref, ctx) and _inner(idx):
+                    _SENDER_DEP_CACHE[cache_key] = True
+                    visiting.remove(cache_key)
+                    return True
+            except Exception:
+                continue
+
+        # Model InternalCall lvalue := callee(...); if the callee returns a
+        # sender-dependent value, the lvalue is sender-dependent too.
+        for ref, callee in _internal_call_deps_for_ctx(ctx):
+            try:
+                if not is_dependent(v, ref, ctx):
+                    continue
+            except Exception:
+                continue
+            if _callable_returns_sender_dependent(callee, set()):
+                _SENDER_DEP_CACHE[cache_key] = True
+                visiting.remove(cache_key)
+                return True
+
+        _SENDER_DEP_CACHE[cache_key] = False
+        visiting.remove(cache_key)
+        return False
+
+    return _inner(var)
+
+
+def _must_revert_from(node: Any, memo: Dict[int, bool], visiting: Set[int]) -> bool:
+    """
+    Conservative 'must-revert' predicate for CFG nodes:
+    True only if all paths from the node lead to an unconditional revert/throw.
+    Cycles are treated as not-must-revert to avoid false certainty.
+    """
+    if node is None:
+        return False
+    key = id(node)
+    if key in memo:
+        return memo[key]
+    if key in visiting:
+        # Loop/cycle: can't prove must-revert.
+        return False
+    visiting.add(key)
+
+    node_type = None
+    try:
+        node_type = getattr(node, "type", None)
+    except Exception:
+        node_type = None
+
+    if _node_reverts(node):
+        memo[key] = True
+        visiting.remove(key)
+        return True
+    if node_type == NodeType.RETURN:
+        memo[key] = False
+        visiting.remove(key)
+        return False
+
+    sons = getattr(node, "sons", None) or []
+    if not sons:
+        memo[key] = False
+        visiting.remove(key)
+        return False
+
+    result = all(_must_revert_from(son, memo, visiting) for son in sons)
+    memo[key] = result
+    visiting.remove(key)
+    return result
+
+
+def _find_revert_nodes(start: Any, limit: int = 50) -> List[Any]:
+    """Collect a few revert/throw nodes reachable from `start` (best-effort)."""
+    if start is None:
+        return []
+    seen: Set[int] = set()
+    out: List[Any] = []
+    queue: deque[Any] = deque([start])
+    while queue and len(out) < limit:
+        node = queue.popleft()
+        key = id(node)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _node_reverts(node):
+            out.append(node)
+            continue
+        for son in getattr(node, "sons", None) or []:
+            queue.append(son)
+    return out
+
+
+def _collect_msg_sender_checks(callable_item: Union[Function, Modifier]) -> List[Dict[str, Any]]:
+    """
+    Extract sender-dependent revert guards inside a callable.
+
+    Captures:
+    - require/assert where the condition depends (transitively) on msg.sender
+    - if branches that must-revert where the if-condition depends on msg.sender
+    - in modifiers only: external calls that pass msg.sender-derived values as args
+    """
+    if callable_item is None:
+        return []
+
+    # Dependency checks should be evaluated in the callable's own context to avoid
+    # whole-contract over-approximation (Slither can otherwise taint unrelated
+    # temporary vars and create false positives).
+    dep_ctx: Contract | Function = callable_item
+
+    callable_name = _display_name(callable_item)
+    callable_kind = "modifier" if isinstance(callable_item, Modifier) else "function"
+
+    checks: List[Dict[str, Any]] = []
+    must_memo: Dict[int, bool] = {}
+
+    for node in getattr(callable_item, "nodes", []) or []:
+        node_loc = _source_location(node)
+        node_src = (_source_text(node) or "").strip()
+
+        # 1) require/assert guards: require(cond) / assert(cond)
+        for call in getattr(node, "internal_calls", []) or []:
+            fn = getattr(call, "function", None)
+            fn_name = str(getattr(fn, "name", "") or "")
+            if fn_name not in _REQUIRE_ASSERT_NAMES:
+                continue
+            args = getattr(call, "arguments", None) or []
+            cond = args[0] if args else None
+            if not _depends_on_msg_sender(cond, dep_ctx):
+                continue
+            kind = "assert" if fn_name.startswith("assert") else "require"
+            checks.append(
+                {
+                    "kind": kind,
+                    "callable": callable_name,
+                    "callable_kind": callable_kind,
+                    "location": node_loc,
+                    "source": node_src,
+                    "detail": {"signature": fn_name},
+                }
+            )
+
+        # 2) if (...) { revert } style guards
+        if getattr(node, "type", None) in (NodeType.IF, NodeType.IFLOOP):
+            cond_ir = None
+            for ir in getattr(node, "irs", []) or []:
+                if isinstance(ir, Condition):
+                    cond_ir = ir
+                    break
+            cond_val = getattr(cond_ir, "value", None) if cond_ir is not None else None
+            if cond_val is not None and _depends_on_msg_sender(cond_val, dep_ctx):
+                visiting: Set[int] = set()
+                son_true = getattr(node, "son_true", None)
+                son_false = getattr(node, "son_false", None)
+                true_must_revert = _must_revert_from(son_true, must_memo, visiting)
+                false_must_revert = _must_revert_from(son_false, must_memo, visiting)
+
+                if true_must_revert or false_must_revert:
+                    branch = "true" if true_must_revert else "false"
+                    start = son_true if true_must_revert else son_false
+                    revert_nodes = _find_revert_nodes(start)
+                    revert_loc = _source_location(revert_nodes[0]) if revert_nodes else None
+                    revert_src = (_source_text(revert_nodes[0]) or "").strip() if revert_nodes else ""
+                    checks.append(
+                        {
+                            "kind": "if_revert",
+                            "callable": callable_name,
+                            "callable_kind": callable_kind,
+                            "location": node_loc,
+                            "source": node_src,
+                            "detail": {
+                                "revert_on": branch,
+                                "revert_location": revert_loc,
+                                "revert_source": revert_src,
+                            },
+                        }
+                    )
+
+        # 3) Modifier-only: external calls that pass msg.sender-derived values.
+        if callable_kind == "modifier":
+            operations = getattr(node, "irs", None) or []
+            for ir in operations:
+                if isinstance(ir, (HighLevelCall, LowLevelCall)) and not isinstance(ir, LibraryCall):
+                    args = getattr(ir, "arguments", None) or []
+                    destination = getattr(ir, "destination", None)
+                    reads = list(args)
+                    if destination is not None:
+                        reads.append(destination)
+                    if not any(
+                        _depends_on_msg_sender(v, dep_ctx) for v in reads if v is not None
+                    ):
+                        continue
+                    checks.append(
+                        {
+                            "kind": "external_call_sender_arg",
+                            "callable": callable_name,
+                            "callable_kind": callable_kind,
+                            "location": node_loc,
+                            "source": node_src,
+                            "detail": {
+                                "type": ir.__class__.__name__,
+                                "function": str(getattr(ir, "function_name", "") or ""),
+                            },
+                        }
+                    )
+
+    return checks
+
+
+def _format_msg_sender_checks(checks: List[Dict[str, Any]]) -> List[str]:
+    """Human-friendly one-liners for UI/markdown panels."""
+    out: List[str] = []
+    for chk in checks or []:
+        kind = chk.get("kind") or "check"
+        callable_name = chk.get("callable") or "<unknown>"
+        loc = chk.get("location") or {}
+        line = f"[{kind}] {callable_name} @ {_fmt_location(loc)}"
+        detail = chk.get("detail") or {}
+        if kind == "if_revert":
+            branch = detail.get("revert_on") or "?"
+            rloc = detail.get("revert_location") or {}
+            line += f" (revert on {branch}; reverts @ {_fmt_location(rloc)})"
+        out.append(line)
+    return out
 
 
 def _resolve_unimplemented_call(
@@ -458,17 +957,40 @@ def _walk_callable(
 
 def _entry_points_for(contract: Contract) -> List[Function]:
     """Return state-modifying public/external entry points for a contract."""
-    candidates = [
-        function
-        for function in contract.functions
-        if function.visibility in ["public", "external"]
-        and isinstance(function, FunctionContract)
-        and not function.is_constructor
-        and not function.view
-        and not function.pure
-        and not function.is_shadowed
-        and not (hasattr(function, "is_implemented") and not function.is_implemented)
-    ]
+    return _entry_points_by_predicate(
+        contract,
+        lambda fn: (not fn.view) and (not fn.pure),
+    )
+
+
+def _read_only_entry_points_for(contract: Contract) -> List[Function]:
+    """Return view/pure public/external entry points for a contract."""
+    return _entry_points_by_predicate(
+        contract,
+        lambda fn: bool(fn.view or fn.pure),
+    )
+
+
+def _entry_points_by_predicate(
+    contract: Contract,
+    is_selected: Callable[[FunctionContract], bool],
+) -> List[Function]:
+    """Return public/external FunctionContract callables matching is_selected."""
+    candidates: List[Function] = []
+    for function in contract.functions:
+        if function.visibility not in ["public", "external"]:
+            continue
+        if not isinstance(function, FunctionContract):
+            continue
+        if function.is_constructor:
+            continue
+        if function.is_shadowed:
+            continue
+        if hasattr(function, "is_implemented") and not function.is_implemented:
+            continue
+        if not is_selected(function):
+            continue
+        candidates.append(function)
     return sorted(candidates, key=_display_name)
 
 
@@ -507,9 +1029,60 @@ def build_entry_point_flows(
     progress_cb: ProgressCallback | None = None,
 ) -> List[Dict[str, Any]]:
     """Assemble structured data for every entry point and its execution flow."""
+    return _build_entry_point_flows(
+        slither,
+        root_contracts=root_contracts,
+        entry_points_fn=_entry_points_for,
+        label="entry point",
+        progress_cb=progress_cb,
+    )
+
+
+def build_read_only_entry_point_flows(
+    slither: Slither,
+    root_contracts: Sequence[Contract] | None = None,
+    progress_cb: ProgressCallback | None = None,
+) -> List[Dict[str, Any]]:
+    """Assemble structured data for view/pure entry points and their execution flows."""
+    return _build_entry_point_flows(
+        slither,
+        root_contracts=root_contracts,
+        entry_points_fn=_read_only_entry_points_for,
+        label="read-only entry point",
+        progress_cb=progress_cb,
+    )
+
+
+def _build_entry_point_flows(
+    slither: Slither,
+    root_contracts: Sequence[Contract] | None,
+    entry_points_fn: Callable[[Contract], List[Function]],
+    label: str,
+    progress_cb: ProgressCallback | None,
+) -> List[Dict[str, Any]]:
+    # These caches key off `id(...)` of Slither objects. Clear them per run to avoid
+    # stale entries (and potential id-reuse collisions) across multiple analyses in
+    # the same long-lived process (e.g. the local web server).
+    _INDEX_DEPS_CACHE.clear()
+    _SENDER_DEP_CACHE.clear()
+    _INTERNAL_CALL_DEPS_CACHE.clear()
+    _CALLABLE_RETURN_SENDER_DEP_CACHE.clear()
+
     entries: List[Dict[str, Any]] = []
     reported_unimplemented: Set[str] = set()
     all_contracts = list(getattr(slither, "contracts", []) or [])
+    compilation_units = getattr(slither, "compilation_units", None) or []
+    if not compilation_units:
+        cc = getattr(slither, "crytic_compile", None) or getattr(slither, "_crytic_compile", None)
+        compilation_units = getattr(cc, "compilation_units", None) or []
+    if compilation_units:
+        _report_progress(progress_cb, "Computing data dependencies")
+        for unit in compilation_units:
+            try:
+                compute_dependency(unit)
+            except Exception:
+                # Best-effort; dependency analysis can fail on edge-case builds.
+                continue
 
     audited_contracts = list(_iter_audited_contracts(slither, root_contracts))
     _report_progress(
@@ -517,7 +1090,7 @@ def build_entry_point_flows(
         "Collecting audited contracts",
         count=len(audited_contracts),
     )
-    total_entries = sum(len(_entry_points_for(contract)) for contract in audited_contracts)
+    total_entries = sum(len(entry_points_fn(contract)) for contract in audited_contracts)
     entry_index = 0
 
     for contract_index, contract in enumerate(audited_contracts, start=1):
@@ -528,11 +1101,11 @@ def build_entry_point_flows(
             index=contract_index,
             total=len(audited_contracts),
         )
-        for entry_point in _entry_points_for(contract):
+        for entry_point in entry_points_fn(contract):
             entry_index += 1
             _report_progress(
                 progress_cb,
-                "Analyzing entry point",
+                f"Analyzing {label}",
                 entry_point=_display_name(entry_point),
                 contract=contract.name,
                 index=entry_index,
@@ -598,10 +1171,18 @@ def build_entry_point_flows(
                 item["variable_records"] = (
                     _collect_local_and_param_vars(target_fn) if target_fn else []
                 )
+                sender_checks = _collect_msg_sender_checks(target_fn) if target_fn else []
+                item["msg_sender_checks"] = sender_checks
+                item["msg_sender_constrained"] = bool(sender_checks)
+                item["restrictions"] = _format_msg_sender_checks(sender_checks)
+
+            aggregated_sender_checks: List[Dict[str, Any]] = []
+            for item in flow:
+                aggregated_sender_checks.extend(item.get("msg_sender_checks") or [])
 
             _report_progress(
                 progress_cb,
-                "Entry point complete",
+                f"{label.capitalize()} complete",
                 entry_point=_display_name(entry_point),
                 contract=contract.name,
                 index=entry_index,
@@ -612,7 +1193,14 @@ def build_entry_point_flows(
                 {
                     "contract": contract.name,
                     "entry_point": _display_name(entry_point),
+                    "inputs": _collect_entry_point_inputs(entry_point),
+                    "outputs": _collect_entry_point_outputs(entry_point),
                     "reads_msg_sender": reads_msg_sender,
+                    "msg_sender_constrained": bool(aggregated_sender_checks),
+                    "msg_sender_checks": aggregated_sender_checks,
+                    "msg_sender_restrictions": _format_msg_sender_checks(
+                        aggregated_sender_checks
+                    ),
                     "state_variables_read": state_vars_read,
                     "state_variables_written": state_vars_written,
                     "state_variables_read_keys": state_vars_read_keys,
