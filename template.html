@@ -583,7 +583,7 @@
 
 
     .comment-swatches {
-    display: inline-flex;
+    display: flex;
     gap: 6px;
     align-items: center;
     }
@@ -606,7 +606,7 @@
     position: fixed;
     z-index: 9999;
     display: none;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     padding: 6px 10px;
     border: 1px solid color-mix(in srgb, var(--comment-preview-color, #fbbf24) 55%, transparent);
@@ -621,10 +621,17 @@
     }
 
     .comment-editor.is-visible {
-    display: inline-flex;
+    display: inline-block;
     }
 
-    .comment-editor input {
+    .comment-editor textarea::-webkit-scrollbar {
+    display:none
+    }
+
+    .comment-editor textarea {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overflow: auto;
     width: 320px;
     max-width: min(70vw, 360px);
     background: transparent;
@@ -632,6 +639,8 @@
     outline: none;
     color: var(--comment-preview-color, #fbbf24);
     font-size: 11px;
+    line-height: var(--code-line-height, 14px);
+    resize: vertical;
     }
 
     .comment-editor .hint {
@@ -2237,6 +2246,14 @@
       persistLineComments();
     };
 
+    const formatLineCommentText = (text, indent = '') => {
+      const normalized = (text || '').replace(/\r\n?/g, '\n');
+      return normalized
+        .split('\n')
+        .map((line) => `${indent}// ${line}`)
+        .join('\n');
+    };
+
     const updateLineCommentUI = (lineKey) => {
       if (!lineKey) return;
       const comment = getLineComment(lineKey);
@@ -2250,13 +2267,14 @@
         const codeText = lineEl.querySelector('.code-line-content')?.textContent || '';
         const indentMatch = codeText.match(/^\s*/);
         const indent = indentMatch ? indentMatch[0] : '';
+        const commentDisplay = formatLineCommentText(comment.text, indent);
         const commentLine = document.createElement('div');
-        commentLine.className = 'code-line user-comment-line flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line';
+        commentLine.className = 'code-line user-comment-line flex items-start gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line';
         commentLine.setAttribute('data-comment-for', lineKey);
         commentLine.style.setProperty('--comment-color', comment.color || DEFAULT_COMMENT_COLOR);
         commentLine.innerHTML = `
           <span class="select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:var(--code-line-height, 14px);height:var(--code-line-height, 14px);"></span>
-          <span class="comment-text whitespace-pre font-mono" style="line-height:var(--code-line-height, 14px);height:var(--code-line-height, 14px);">${escapeHtmlGlobal(indent)}// ${escapeHtmlGlobal(comment.text)}</span>
+          <span class="comment-text whitespace-pre font-mono" style="line-height:var(--code-line-height, 14px);">${escapeHtmlGlobal(commentDisplay)}</span>
           <div class="absolute inset-0 ml-8 border-l-8 pointer-events-none" style="border-left-color: color-mix(in srgb, var(--comment-color) 45%, transparent);"></div>
         `;
         lineEl.parentElement?.insertBefore(commentLine, lineEl);
@@ -2275,12 +2293,11 @@
       commentEditorEl = document.createElement('div');
       commentEditorEl.className = 'comment-editor';
       commentEditorEl.innerHTML = `
-        <span class="text-xs">//</span>
-        <input type="text" spellcheck="false" placeholder="Add inline note..." />
+        <textarea spellcheck="false" rows="2" placeholder="Add inline note..."></textarea>
         <div class="comment-swatches"></div>
-        <span class="hint">enter save · esc cancel</span>
+        <span class="hint">enter save · shift+enter newline · esc cancel</span>
       `;
-      commentEditorInput = commentEditorEl.querySelector('input');
+      commentEditorInput = commentEditorEl.querySelector('textarea');
       const swatchEl = commentEditorEl.querySelector('.comment-swatches');
       COMMENT_COLORS.forEach((color) => {
         const swatch = document.createElement('button');
@@ -2296,7 +2313,7 @@
         swatchEl.appendChild(swatch);
       });
       commentEditorInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
           commitLineComment();
         } else if (event.key === 'Escape') {
@@ -3344,12 +3361,12 @@
         const commentRow = (() => {
           const comment = getLineComment(lineKey);
           if (!comment || !comment.text) return '';
-          const escaped = escapeHtml(comment.text);
+          const commentDisplay = formatLineCommentText(comment.text, indent);
           const color = comment.color || DEFAULT_COMMENT_COLOR;
           return `
-                <div class="code-line user-comment-line flex gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-comment-for="${lineKey}" style="--comment-color:${color};">
+                <div class="code-line user-comment-line flex items-start gap-3 hover:bg-white/5 transition-colors duration-100 relative group/line" data-comment-for="${lineKey}" style="--comment-color:${color};">
                   <span class="select-none w-5 text-right shrink-0 border-r border-cyan-900/30 pr-8 font-mono opacity-70" style="line-height:${lineHeight};height:${lineHeight};"></span>
-                  <span class="comment-text whitespace-pre font-mono" style="line-height:${lineHeight};height:${lineHeight};">${escapeHtml(indent)}// ${escaped}</span>
+                  <span class="comment-text whitespace-pre font-mono" style="line-height:${lineHeight};">${escapeHtml(commentDisplay)}</span>
                   <div class="absolute inset-0 ml-8 border-l-8 pointer-events-none" style="border-left-color: color-mix(in srgb, var(--comment-color) 45%, transparent);"></div>
                 </div>
           `;
