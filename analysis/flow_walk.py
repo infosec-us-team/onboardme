@@ -53,6 +53,7 @@ _INDEX_DEPS_CACHE: Dict[int, List[tuple[Any, Any]]] = {}
 _SENDER_DEP_CACHE: Dict[tuple[int, int], bool] = {}
 _INTERNAL_CALL_DEPS_CACHE: Dict[int, List[tuple[Any, Union[Function, Modifier]]]] = {}
 _CALLABLE_RETURN_SENDER_DEP_CACHE: Dict[int, bool] = {}
+_GUARDED_PARAM_KINDS_CACHE: Dict[int, Dict[int, tuple[str, ...]]] = {}
 
 
 def _report_progress(callback: ProgressCallback | None, message: str, **meta: Any) -> None:
@@ -495,6 +496,71 @@ def _find_revert_nodes(start: Any, limit: int = 50) -> List[Any]:
     return out
 
 
+def _guarded_parameter_kinds(callable_item: Union[Function, Modifier]) -> Dict[int, Set[str]]:
+    """
+    Return parameter indexes that influence revert-style guards in `callable_item`.
+
+    Kinds include: `require`, `assert`, `if_revert`.
+    """
+    if callable_item is None:
+        return {}
+
+    cache_key = id(callable_item)
+    cached = _GUARDED_PARAM_KINDS_CACHE.get(cache_key)
+    if cached is not None:
+        return {idx: set(kinds) for idx, kinds in cached.items()}
+
+    params: List[Any] = list(getattr(callable_item, "parameters", None) or [])
+    if not params:
+        _GUARDED_PARAM_KINDS_CACHE[cache_key] = {}
+        return {}
+
+    guarded: Dict[int, Set[str]] = {}
+    must_memo: Dict[int, bool] = {}
+
+    def _mark_kind(cond_var: Any, kind: str) -> None:
+        if cond_var is None:
+            return
+        for idx, param in enumerate(params):
+            try:
+                if is_dependent(cond_var, param, callable_item):
+                    guarded.setdefault(idx, set()).add(kind)
+            except Exception:
+                continue
+
+    for node in getattr(callable_item, "nodes", []) or []:
+        for call in getattr(node, "internal_calls", []) or []:
+            fn = getattr(call, "function", None)
+            fn_name = str(getattr(fn, "name", "") or "")
+            if fn_name not in _REQUIRE_ASSERT_NAMES:
+                continue
+            args = getattr(call, "arguments", None) or []
+            cond = args[0] if args else None
+            kind = "assert" if fn_name.startswith("assert") else "require"
+            _mark_kind(cond, kind)
+
+        if getattr(node, "type", None) in (NodeType.IF, NodeType.IFLOOP):
+            cond_ir = None
+            for ir in getattr(node, "irs", []) or []:
+                if isinstance(ir, Condition):
+                    cond_ir = ir
+                    break
+            cond_val = getattr(cond_ir, "value", None) if cond_ir is not None else None
+            if cond_val is None:
+                continue
+            visiting: Set[int] = set()
+            son_true = getattr(node, "son_true", None)
+            son_false = getattr(node, "son_false", None)
+            true_must_revert = _must_revert_from(son_true, must_memo, visiting)
+            false_must_revert = _must_revert_from(son_false, must_memo, visiting)
+            if true_must_revert or false_must_revert:
+                _mark_kind(cond_val, "if_revert")
+
+    frozen = {idx: tuple(sorted(kinds)) for idx, kinds in guarded.items()}
+    _GUARDED_PARAM_KINDS_CACHE[cache_key] = frozen
+    return {idx: set(kinds) for idx, kinds in frozen.items()}
+
+
 def _collect_msg_sender_checks(callable_item: Union[Function, Modifier]) -> List[Dict[str, Any]]:
     """
     Extract sender-dependent revert guards inside a callable.
@@ -580,9 +646,62 @@ def _collect_msg_sender_checks(callable_item: Union[Function, Modifier]) -> List
                         }
                     )
 
-        # 3) Modifier-only: external calls that pass msg.sender-derived values.
+        # 3) Internal calls that pass msg.sender-derived values into callee
+        # parameters that influence a revert-style guard.
+        operations = getattr(node, "irs", None) or []
+        for ir in operations:
+            if not isinstance(ir, InternalCall):
+                continue
+            callee = getattr(ir, "function", None)
+            if not isinstance(callee, (Function, Modifier)):
+                continue
+            guarded_param_kinds = _guarded_parameter_kinds(callee)
+            if not guarded_param_kinds:
+                continue
+            args = list(getattr(ir, "arguments", None) or [])
+            if not args:
+                continue
+
+            matched_indexes: List[int] = []
+            matched_kinds: Set[str] = set()
+            for param_idx, kinds in guarded_param_kinds.items():
+                if param_idx < 0 or param_idx >= len(args):
+                    continue
+                arg = args[param_idx]
+                if arg is None:
+                    continue
+                if not _depends_on_msg_sender(arg, dep_ctx):
+                    continue
+                matched_indexes.append(param_idx)
+                matched_kinds.update(kinds)
+
+            if not matched_indexes:
+                continue
+
+            propagated_kind = (
+                "if_revert"
+                if "if_revert" in matched_kinds
+                else "require"
+                if "require" in matched_kinds
+                else "assert"
+            )
+            checks.append(
+                {
+                    "kind": propagated_kind,
+                    "callable": callable_name,
+                    "callable_kind": callable_kind,
+                    "location": node_loc,
+                    "source": node_src,
+                    "detail": {
+                        "via_internal_call": _display_name(callee),
+                        "guard_kinds": sorted(matched_kinds),
+                        "guarded_parameter_indexes": sorted(set(matched_indexes)),
+                    },
+                }
+            )
+
+        # 4) Modifier-only: external calls that pass msg.sender-derived values.
         if callable_kind == "modifier":
-            operations = getattr(node, "irs", None) or []
             for ir in operations:
                 if isinstance(ir, (HighLevelCall, LowLevelCall)) and not isinstance(ir, LibraryCall):
                     args = getattr(ir, "arguments", None) or []
@@ -1067,6 +1186,7 @@ def _build_entry_point_flows(
     _SENDER_DEP_CACHE.clear()
     _INTERNAL_CALL_DEPS_CACHE.clear()
     _CALLABLE_RETURN_SENDER_DEP_CACHE.clear()
+    _GUARDED_PARAM_KINDS_CACHE.clear()
 
     entries: List[Dict[str, Any]] = []
     reported_unimplemented: Set[str] = set()
