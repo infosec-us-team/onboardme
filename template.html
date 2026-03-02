@@ -2439,26 +2439,30 @@
     // --- RENDERING HELPERS ---
 
     const copyText = async (text) => {
-      if (!text) return;
+      if (!text) return false;
       try {
         await navigator.clipboard.writeText(text);
-        return;
+        return true;
       } catch (_) {
-        // Clipboard API may be unavailable (non-HTTPS). Fall back.
+        // Clipboard API may be unavailable or reject large payloads. Fall back.
       }
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.setAttribute('readonly', '');
-      textarea.style.position = 'absolute';
+      textarea.style.position = 'fixed';
       textarea.style.left = '-9999px';
+      textarea.style.top = '0';
       document.body.appendChild(textarea);
+      textarea.focus();
       textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
       try {
-        document.execCommand('copy');
+        return Boolean(document.execCommand('copy'));
       } catch (_) {
-        // Ignore copy failures silently.
+        return false;
+      } finally {
+        document.body.removeChild(textarea);
       }
-      document.body.removeChild(textarea);
     };
 
     const flashCopyFeedback = (message) => {
@@ -3944,13 +3948,13 @@
     const copyMarkdownReport = async () => {
       if (!appState.activeFunctionId) return;
       flashCopyFeedback('copying...');
-      try {
-        const md = buildMarkdownReport(appState.activeFunctionId);
-        await navigator.clipboard.writeText(md);
+      const md = buildMarkdownReport(appState.activeFunctionId);
+      const ok = await copyText(md);
+      if (ok) {
         flashCopyFeedback('copied!');
-      } catch (err) {
+      } else {
         flashCopyFeedback('copy failed');
-        console.error('Clipboard copy failed', err);
+        console.error('Clipboard copy failed');
       }
     };
 
