@@ -163,6 +163,8 @@ ETHERSCAN_API_KEY=...
 Optional: set `TEMPLATE_PATH=path/to/custom-template.html` in `.env` to override the
 default dashboard template. Relative paths are resolved from the repository root. If
 unset, OnboardMe uses [`template.html`](template.html).
+See [`TEMPLATES.md`](TEMPLATES.md) for the placeholder contract, payload schema, and
+custom-template build guidance.
 
 ### Read-only contract calls (eth_call) and RPC URLs
 
