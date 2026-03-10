@@ -4056,6 +4056,37 @@
       }, 1000);
     };
 
+    const getMainFlowScrollContainer = () => document.querySelector('#main-flow .overflow-y-auto');
+
+    const moveFlowTargetBelowOrigin = (target, originNodeId = '') => {
+      if (!target || !originNodeId) return target;
+      const mainFlow = document.getElementById('main-flow');
+      const origin = mainFlow?.querySelector(`[data-node-id="${originNodeId}"]`);
+      if (!origin || origin === target) return target;
+      if (origin.parentElement !== target.parentElement) return target;
+      const scroller = getMainFlowScrollContainer();
+      const originTopBefore = origin.getBoundingClientRect().top;
+      origin.insertAdjacentElement('afterend', target);
+      if (scroller) {
+        const originTopAfter = origin.getBoundingClientRect().top;
+        const scrollDelta = originTopAfter - originTopBefore;
+        if (Math.abs(scrollDelta) > 1) {
+          scroller.scrollTop += scrollDelta;
+        }
+      }
+      return target;
+    };
+
+    const scrollFlowTargetIntoView = (target, originNodeId = '') => {
+      if (!target) return;
+      const scroller = getMainFlowScrollContainer();
+      if (!scroller) {
+        target.scrollIntoView({ block: originNodeId ? 'nearest' : 'start', behavior: 'smooth' });
+        return;
+      }
+      target.scrollIntoView({ block: originNodeId ? 'nearest' : 'start', behavior: 'smooth' });
+    };
+
 	    const resolveFlowTargetElement = (key, originNodeId = '', originContract = '', callKind = '', callContract = '') => {
 	      if (!key) return null;
 	      const mainFlow = document.getElementById('main-flow');
@@ -4114,7 +4145,8 @@
       if (collapseKey && target.classList.contains('node-collapsed')) {
         toggleNodeCollapse(collapseKey);
       }
-      target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      moveFlowTargetBelowOrigin(target, originNodeId);
+      scrollFlowTargetIntoView(target, originNodeId);
       focusScrolledFunction(target);
       return true;
     };
@@ -4311,8 +4343,8 @@
       const target = event.target.closest('.function-link');
       if (!target) return;
       const key = target.getAttribute('data-fn-key');
-      const originNodeId = target.getAttribute('data-fn-origin') || '';
       const originNode = target.closest('[data-node-id]');
+      const originNodeId = target.getAttribute('data-fn-origin') || originNode?.getAttribute('data-node-id') || '';
       const originContract = originNode?.getAttribute('data-node-contract') || '';
       const callKind = target.getAttribute('data-fn-call') || '';
       const callContract = target.getAttribute('data-fn-call-contract') || '';
