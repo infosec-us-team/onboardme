@@ -25,6 +25,7 @@ from analysis.flow_walk import (
     build_read_only_entry_point_flows,
 )
 from analysis.render import render_html
+from analysis.slither_extract import _contract_key
 from analysis.state_vars import (
     _event_record,
     _interface_record,
@@ -58,11 +59,13 @@ def _resolve_contract_name_from_export(address: str, chain: str) -> str | None:
         return None
     prefix = f"{_normalize_address(address)}{chain.lower()}-"
     for entry in export_root.iterdir():
-        if not entry.is_dir():
+        if not entry.is_dir() and entry.suffix.lower() != ".sol":
             continue
         name = entry.name
         if name.lower().startswith(prefix):
             candidate = name[len(prefix):]
+            if candidate.lower().endswith(".sol"):
+                candidate = candidate[:-4]
             return candidate or None
     return None
 
@@ -507,6 +510,32 @@ def _select_local_root_contracts(slither: Slither) -> List[Contract]:
     roots = [contract for contract in audited_contracts if contract not in inherited]
     return roots or audited_contracts
 
+
+def _merge_root_contracts(
+    preferred_contracts: Sequence[Contract] | None,
+    discovered_contracts: Sequence[Contract] | None,
+) -> List[Contract]:
+    """
+    Merge contract lists while preserving order and keeping the deployed contract first.
+
+    On-chain verification bundles can contain multiple deployable contracts. The generic
+    "local roots" heuristic is useful for surfacing sibling contracts, but it must not
+    drop the contract actually deployed at the requested address.
+    """
+    merged: List[Contract] = []
+    seen: set[tuple[str, str]] = set()
+
+    for contract in list(preferred_contracts or []) + list(discovered_contracts or []):
+        if contract is None:
+            continue
+        key = _contract_key(contract)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(contract)
+
+    return merged
+
 # ----------- Main ------------------------------------------------------------
 
 def generate_html(
@@ -564,7 +593,10 @@ def generate_html(
 
     _report_progress(progress_cb, "Resolving deployed contract")
     resolved_contracts = _resolve_root_contracts(slither, address, chain)
-    root_contracts = _select_local_root_contracts(slither)
+    root_contracts = _merge_root_contracts(
+        resolved_contracts,
+        _select_local_root_contracts(slither),
+    )
     if not root_contracts:
         raise ValueError("No deployable contracts found for the address")
 

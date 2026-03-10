@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
+from analysis.slither_env import _load_dotenv
+
 ProgressCallback = Callable[[str, Dict[str, Any] | None], None]
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_TEMPLATE_PATH = _REPO_ROOT / "template.html"
+_TEMPLATE_ENV_VAR = "TEMPLATE_PATH"
 
 
 def _report_progress(callback: ProgressCallback | None, message: str, **meta: Any) -> None:
@@ -52,6 +58,20 @@ def _build_storage_payload(
     return storage_vars, writers_index
 
 
+def _resolve_template_path() -> Path:
+    """Resolve the HTML template path from env, falling back to template.html."""
+    _load_dotenv()
+
+    configured = os.environ.get(_TEMPLATE_ENV_VAR, "").strip()
+    if not configured:
+        return _DEFAULT_TEMPLATE_PATH
+
+    template_path = Path(configured).expanduser()
+    if not template_path.is_absolute():
+        template_path = _REPO_ROOT / template_path
+    return template_path
+
+
 def render_html(
     contract_views: Dict[str, Dict[str, Any]],
     default_contract: str,
@@ -86,8 +106,15 @@ def render_html(
 
     contract_list = sorted(rendered_views.keys())
 
-    template_path = Path("template.html")
-    _report_progress(progress_cb, "Rendering template")
+    template_path = _resolve_template_path()
+    if not template_path.is_file():
+        if template_path == _DEFAULT_TEMPLATE_PATH:
+            raise FileNotFoundError(f"Default template not found: {template_path}")
+        raise FileNotFoundError(
+            f"Configured {_TEMPLATE_ENV_VAR} does not point to a file: {template_path}"
+        )
+
+    _report_progress(progress_cb, "Rendering template", template=str(template_path))
     template_html = template_path.read_text(encoding="utf-8")
 
     views_json = json.dumps(rendered_views, ensure_ascii=False, indent=2)
@@ -117,8 +144,7 @@ def render_html(
     output_dir = output_dir or Path("src")
     output_dir.mkdir(parents=True, exist_ok=True)
     _report_progress(progress_cb, "Writing output")
-    repo_root = Path(__file__).resolve().parent.parent
-    hotkeys_src = repo_root / "src" / "hotkeys.json"
+    hotkeys_src = _REPO_ROOT / "src" / "hotkeys.json"
     hotkeys_dst = output_dir / "hotkeys.json"
     if hotkeys_src.exists():
         # Keep hotkeys in sync with template behavior. Like the HTML file, overwrite on every render.

@@ -1126,10 +1126,12 @@ def _iter_audited_contracts(
             for base in getattr(root, "inheritance", []):
                 allowed_keys.add(_contract_key(base))
 
+    candidates = slither.contracts if allowed_keys is not None else slither.contracts_derived
+
     return sorted(
         (
             contract
-            for contract in slither.contracts_derived
+            for contract in candidates
             if not contract.is_test
             and not contract.is_from_dependency()
             and not is_test_file(Path(contract.source_mapping.filename.absolute))

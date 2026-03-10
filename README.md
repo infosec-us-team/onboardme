@@ -160,6 +160,10 @@ Create a file named `.env` (or copy `example.env` to `.env`) and add your `ETHER
 ETHERSCAN_API_KEY=...
 ```
 
+Optional: set `TEMPLATE_PATH=path/to/custom-template.html` in `.env` to override the
+default dashboard template. Relative paths are resolved from the repository root. If
+unset, OnboardMe uses [`template.html`](template.html).
+
 ### Read-only contract calls (eth_call) and RPC URLs
 
 The UI includes a **read-only contract call** feature (calls `view` / `pure` functions via `eth_call`).
