@@ -1779,6 +1779,10 @@
     let appState = {
       activeFunctionId: null,
       entryPointMode: 'write',
+      selectedFunctionIds: {
+        write: null,
+        read_only: null
+      },
       leftCollapsed: false,
       rightCollapsed: true,
       lastAction: 'init',
@@ -1818,6 +1822,22 @@
       hideCollapsed: false,
       codeFontSize: CODE_FONT_DEFAULT,
       stepByStepEnabled: false
+    };
+
+    const normalizeEntryPointMode = (mode) => (mode === 'read_only' ? 'read_only' : 'write');
+
+    const rememberSelectedFunctionId = (id, mode = appState.entryPointMode) => {
+      const targetMode = normalizeEntryPointMode(mode);
+      appState.selectedFunctionIds[targetMode] = id || null;
+    };
+
+    const resolveSelectedFunctionId = (mode, functions = []) => {
+      const targetMode = normalizeEntryPointMode(mode);
+      const rememberedId = appState.selectedFunctionIds[targetMode];
+      if (rememberedId && functions.some((fn) => fn.id === rememberedId)) {
+        return rememberedId;
+      }
+      return functions[0]?.id || null;
     };
 
     let auditedFlowHashes = new Set();
@@ -2084,6 +2104,7 @@
           const nextVisible = findNextVisibleFunction(activeIndex, 1);
           if (nextVisible) {
             appState.activeFunctionId = nextVisible.id;
+            rememberSelectedFunctionId(nextVisible.id);
           }
           refreshMainFlow();
           if (!appState.storagePanelOpen && !appState.rightCollapsed) {
@@ -4151,9 +4172,19 @@
       return true;
     };
 
+    const getSidebarButtons = () => {
+      const leftEl = document.getElementById('sidebar-left');
+      return leftEl ? Array.from(leftEl.querySelectorAll('[data-fn-id]')) : [];
+    };
+
+    const getSidebarButtonById = (fnId) => {
+      if (!fnId) return null;
+      return getSidebarButtons().find((btn) => btn.getAttribute('data-fn-id') === fnId) || null;
+    };
+
     const scrollActiveFunctionIntoView = (behavior = 'smooth') => {
       if (!appState.activeFunctionId) return;
-      const activeBtn = document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`);
+      const activeBtn = getSidebarButtonById(appState.activeFunctionId);
       if (activeBtn) {
         activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior });
       }
@@ -4166,6 +4197,7 @@
         focused.blur();
       }
       appState.activeFunctionId = id;
+      rememberSelectedFunctionId(id);
       appState.lastAction = 'select-function';
       updateSidebarSelection();
       scrollActiveFunctionIntoView();
@@ -4200,6 +4232,7 @@
       const target = visibleList[nextIndex];
       if (target) {
         appState.activeFunctionId = target.id;
+        rememberSelectedFunctionId(target.id);
         appState.lastAction = 'select-function';
         updateSidebarSelection();
         scrollActiveFunctionIntoView('auto');
@@ -4258,19 +4291,20 @@
     };
 
     const updateSidebarSelection = () => {
+      const buttons = getSidebarButtons();
+      if (!buttons.length) {
+        lastActiveFunctionId = appState.activeFunctionId;
+        return;
+      }
       if (lastActiveFunctionId === appState.activeFunctionId) return;
-      const prevBtn = lastActiveFunctionId
-        ? document.querySelector(`[data-fn-id="${lastActiveFunctionId}"]`)
-        : null;
-      const nextBtn = appState.activeFunctionId
-        ? document.querySelector(`[data-fn-id="${appState.activeFunctionId}"]`)
-        : null;
+      const prevBtn = getSidebarButtonById(lastActiveFunctionId);
+      const nextBtn = getSidebarButtonById(appState.activeFunctionId);
 
-      if (prevBtn && nextBtn) {
+      if (prevBtn && nextBtn && prevBtn !== nextBtn) {
         applySidebarSelection(prevBtn, false);
         applySidebarSelection(nextBtn, true);
       } else {
-        document.querySelectorAll('[data-fn-id]').forEach((btn) => {
+        buttons.forEach((btn) => {
           const isActive = btn.getAttribute('data-fn-id') === appState.activeFunctionId;
           applySidebarSelection(btn, isActive);
         });
@@ -4549,6 +4583,7 @@
 
     const setActiveEntryPointMode = (mode) => {
       const next = mode === 'read_only' ? 'read_only' : 'write';
+      rememberSelectedFunctionId(appState.activeFunctionId, appState.entryPointMode);
       appState.entryPointMode = next;
 
       const hydrated = next === 'read_only' ? hydratedReadOnly : hydratedWrite;
@@ -4561,7 +4596,9 @@
         acc[fn.signature] = fn;
         return acc;
       }, {});
-      appState.activeFunctionId = functionList[0]?.id || null;
+      appState.activeFunctionId = resolveSelectedFunctionId(next, functionList);
+      rememberSelectedFunctionId(appState.activeFunctionId, next);
+      lastActiveFunctionId = appState.activeFunctionId;
 
       // Collapse state is keyed by node and entry id. When switching datasets, clear and re-apply defaults.
       clearCollapsedNodes();
@@ -6511,6 +6548,7 @@
 	      hideSenderTooltip();
 	      const leftEl = document.getElementById('sidebar-left');
 	      if (leftEl) leftEl.outerHTML = renderLeftSidebar();
+	      lastActiveFunctionId = appState.activeFunctionId;
 	      applySidebarVisibility();
 	      updateAuditMarksUI();
 	      updateReviewMarksUI();
@@ -6540,7 +6578,8 @@
       }
 
       if (!appState.activeFunctionId) {
-        appState.activeFunctionId = functionList[0].id;
+        appState.activeFunctionId = resolveSelectedFunctionId(appState.entryPointMode, functionList);
+        rememberSelectedFunctionId(appState.activeFunctionId);
       }
 
       const mainFlow = buildMainFlow(isEntrySwitch);
