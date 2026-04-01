@@ -26,6 +26,7 @@ from slither.slither import Slither
 from slither.utils.code_complexity import compute_cyclomatic_complexity
 from slither.utils.tests_pattern import is_test_file
 
+from analysis.entry_points import collect_unique_entry_points
 from analysis.slither_extract import (
     _contract_key,
     _display_name,
@@ -1212,10 +1213,11 @@ def _build_entry_point_flows(
         "Collecting audited contracts",
         count=len(audited_contracts),
     )
-    total_entries = sum(len(entry_points_fn(contract)) for contract in audited_contracts)
+    contract_entry_points = collect_unique_entry_points(audited_contracts, entry_points_fn)
+    total_entries = sum(len(entry_points) for _, entry_points in contract_entry_points)
     entry_index = 0
 
-    for contract_index, contract in enumerate(audited_contracts, start=1):
+    for contract_index, (contract, entry_points) in enumerate(contract_entry_points, start=1):
         _report_progress(
             progress_cb,
             "Scanning contract",
@@ -1223,7 +1225,7 @@ def _build_entry_point_flows(
             index=contract_index,
             total=len(audited_contracts),
         )
-        for entry_point in entry_points_fn(contract):
+        for entry_point in entry_points:
             entry_index += 1
             _report_progress(
                 progress_cb,

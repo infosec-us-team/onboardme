@@ -1648,8 +1648,26 @@
       return JSON.stringify(stable);
     };
 
+    const dedupeRenderedEntries = (entries = []) => {
+      const seen = new Set();
+      return entries.filter((entry, idx) => {
+        const flow = Array.isArray(entry?.flow) ? entry.flow : [];
+        const head = flow[0] || {};
+        const key = JSON.stringify([
+          entry?.entry_point || `entry_point_${idx}`,
+          head?.contract || '',
+          head?.source || '',
+          flow.length
+        ]);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
 		    const buildDataFromJson = (entries = []) => {
-		      const functions = entries.map((entry, idx) => {
+		      const uniqueEntries = dedupeRenderedEntries(entries);
+		      const functions = uniqueEntries.map((entry, idx) => {
 		        const id = normalizeId(entry.entry_point || `fn_${idx}`, `id${idx}`);
 		        const fullName = entry.entry_point || `entry_point_${idx}`;
 		        const display = fullName.split('(')[0];
@@ -1669,7 +1687,7 @@
       const graphs = {};
       const stateReads = {};
       const stateWrites = {};
-      entries.forEach((entry, idx) => {
+      uniqueEntries.forEach((entry, idx) => {
         const flow = entry.flow || [];
         const entryMsgSenderChecks = Array.isArray(entry?.msg_sender_checks) ? entry.msg_sender_checks : [];
         const entryMsgSenderRestrictions = Array.isArray(entry?.msg_sender_restrictions) ? entry.msg_sender_restrictions : [];
