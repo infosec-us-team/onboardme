@@ -42,14 +42,14 @@ These are the practical requirements for a useful data-driven template:
 
 ## Output location and asset behavior
 
-By default, the backend writes generated pages into [`src/`](/home/c/infosec_us_team_repos/onboardme/src).
+By default, the backend writes generated pages into [`src/`](src/).
 
 Behavior to account for:
 
-- [`serve.py`](/home/c/infosec_us_team_repos/onboardme/serve.py) serves static files from `src/`.
-- [`src/hotkeys.json`](/home/c/infosec_us_team_repos/onboardme/src/hotkeys.json) is copied into the output directory on every render.
+- [`serve.py`](serve.py) serves static files from `src/`.
+- [`src/hotkeys.json`](src/hotkeys.json) is copied into the output directory on every render.
 - No other assets are copied automatically.
-- [`src/favicon.svg`](/home/c/infosec_us_team_repos/onboardme/src/favicon.svg) already exists for the default `src/` flow, but if you render elsewhere or add more assets, you must place them where the final HTML can reach them.
+- [`src/favicon.svg`](src/favicon.svg) already exists for the default `src/` flow, but if you render elsewhere or add more assets, you must place them where the final HTML can reach them.
 
 If you reference `./app.css`, `./app.js`, `./logo.png`, or similar, those files need to exist under `src/` or whatever output directory you are using.
 

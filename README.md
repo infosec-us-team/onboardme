@@ -320,7 +320,7 @@ python main.py --local "/path/to/project"
 For example:
 
 ```bash
-(venv) ~/infosec_us_team_repos/onboardme$ python main.py --local "/home/c/protocols/notional-exponent/"
+(venv) ~/onboardme$ python main.py --local "/path/to/protocols/my-project/"
 | Contract                             | URL                                                                                |
 |--------------------------------------|------------------------------------------------------------------------------------|
 | AddressRegistry                      | http://localhost:8000/local_497e92cff8e0_AddressRegistry.html                      |
